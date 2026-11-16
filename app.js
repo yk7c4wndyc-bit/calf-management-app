@@ -305,7 +305,7 @@ function recordDeceased(calfId,existing=false){
   if(!v.deathDate||v.deathDate>today())return error('Enter a date on or before today.');
   v.deathCause=v.deathCause.trim();
   if(!v.deathCause)return error('Enter a cause of death, or Unknown.');
-  return commit(d=>{const c=by(d.calves,calfId);c.deathDate=v.deathDate;c.deathCause=v.deathCause;},'Deceased calf '+calf.tag+' recorded.');
+  return commit(d=>{const c=by(d.calves,calfId);const wasActive=!c.deathDate&&!c.weaned;c.deathDate=v.deathDate;c.deathCause=v.deathCause;if(wasActive){const g=by(d.groups,c.group);if(g&&g.headcount!=null&&g.headcount>0)g.headcount--;}},'Deceased calf '+calf.tag+' recorded.');
  },existing?'Save changes':'Confirm deceased calf');
 }
 function penCalfPicker(zoneId){
