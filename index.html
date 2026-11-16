@@ -11,6 +11,7 @@
 .board svg polygon.shed-footprint{fill:#b6a28842;stroke:#70583f;stroke-dasharray:5 3}.board.focused-shed{max-width:calc(74vh * var(--aspect));margin-inline:auto}.board .shed-link button{pointer-events:auto}#shed-handle{touch-action:none;user-select:none;cursor:grab}#shed-handle:active{cursor:grabbing}
 .layout-resize{position:absolute;transform:translate(-50%,-50%);width:32px;height:32px;min-height:32px;padding:0;background:#24553b;color:white;touch-action:none;z-index:3}.board:has(.layout-resize) polygon,.board [data-layout-move]{touch-action:none;cursor:move}.board:has(.layout-resize) .label{pointer-events:auto}.shed-north-area{display:flex;flex-direction:column;align-items:center;gap:5px;margin:4px 0 10px}.north-caption{font-size:.7rem;letter-spacing:.08em;color:#53664f;font-weight:700}.calf-paddock-drop{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;width:min(46%,210px);min-height:100px;text-align:center;background:#cfe6bb;border:3px dashed #578544;overflow:visible}.calf-paddock-drop small{font-size:.72rem}.calf-paddock-drop.target{background:#fff1bf;outline:4px solid #ad6510}.calf-paddock-drop .group{touch-action:none}
 .dead-bucket-row{display:flex;justify-content:flex-end;align-items:center;margin:0 5% 10px 0}.dead-bucket{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:148px;min-height:95px;text-align:center;border:3px dashed #8c6c53;border-radius:12px;background:#f2e6dc;font-size:.82rem}.dead-bucket span{font-size:1.5rem}.dead-bucket small{font-size:.67rem}.dead-bucket.target{background:#fff0b0;outline:4px solid #b46b22}.calf-drag-chip{pointer-events:auto;touch-action:none;user-select:none;min-height:26px;min-width:31px;padding:2px 4px;margin:2px 1px;background:#fffbee;border:1px solid #9b9b75;border-radius:5px;font-size:.68rem;cursor:grab}.board .label:has(.calf-drag-chip){max-width:55%;}.board .calf-drag-chip{pointer-events:auto}
+.vaccine-swipe{display:flex;align-items:center;justify-content:space-between;gap:10px;overflow:hidden;border:1px solid #ccd8ca;background:#f1f5ee;border-radius:9px;margin:8px 0;padding:5px 8px 5px 12px;touch-action:pan-y}.vaccine-swipe span{font-size:.9rem}.vaccine-swipe button{background:#9e3030;color:white;border-color:#9e3030;min-height:36px;padding:6px 12px}.vaccine-swipe.revealed{background:#ffe7e3;border-color:#d59d95}
 </style>
 <header><p>CALF SHED · FIELD RECORDS</p><h1>Calf Paddock</h1></header>
 <main>
@@ -25,5 +26,5 @@
 <script src="bulk-groups.js?v=20261115"></script>
 <script src="farm-recovery-data.js?v=20261115"></script>
 <script src="farm-recovery.js?v=20261115"></script>
-<script src="app.js?v=deceased-bucket-20261116b"></script>
+<script src="app.js?v=vaccine-swipe-20261116"></script>
 </html>
