@@ -10,7 +10,7 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const id=()=>crypto.randomUUID();
 const today=()=>new Date().toLocaleDateString('sv-SE');
 const by=(rows,key)=>rows.find(row=>row.id===key);
-let penHoldTimer=null,penHoldStart=null,penHoldTriggered=false;
+let penHoldTimer=null,penHoldStart=null,penHoldTriggered=false,calfDrag=null;
 let storageLoadFailed=false;
 let data=structuredClone(defaults),tab='Map',editing=false,query='',drag,mapPage='farm',draft,shedPlacement,shedDrag;
 try {const saved=localStorage.getItem(key);if(saved)data=JSON.parse(saved)} catch {storageLoadFailed=true;say('Saved records could not be loaded. They have been left untouched. Use Records to restore a backup.');}
@@ -47,7 +47,7 @@ function input(name,value='',props=''){return '<input name="'+name+'" value="'+e
 function select(name,options){return '<select name="'+name+'">'+options+'</select>'}
 function outstanding(c){return c.health.filter(h=>h.follow && !h.done)}
 function due(h){return h.follow<=today()}
-function groupCalves(g){return data.calves.filter(c=>c.group===g && !c.weaned)}
+function groupCalves(g){return data.calves.filter(c=>c.group===g && !c.weaned&&!c.deathDate)}
 function groupHeadcount(g){return g.headcount??groupCalves(g.id).length}
 function addDays(date,days){
  const value=new Date(date+'T00:00:00Z');
@@ -84,7 +84,7 @@ function render(){
   const locationRows=mapPage==='farm'?data.zones.filter(z=>z.kind!=='Pen'):zones;
   const image=data.images?.[mapPage];
   const unplaced=zones.filter(z=>!z.shape);
-  view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
+  view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
    '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):''):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
@@ -103,7 +103,7 @@ function render(){
   const groupTasks=vaccinations.map(g=>'<article class="card"><div class="row"><strong>'+esc(groupType(g)+' Group '+groupNumber(g)+' · '+g.name)+'</strong>'+button('Open group','open-group',g.id)+'</div><p class="'+(vaccinationDue(g)?'alert':'')+'">'+esc(vaccinationStatus(g)+' · '+vaccinationLabel(g))+'</p></article>').join('');
   view.innerHTML='<h2>Health follow-ups</h2><p class="hint">Due and upcoming calf checks and group vaccinations.</p>'+(groupTasks+tasks.map(({c,h})=>'<article class="card"><div class="row"><strong>Tag '+esc(c.tag)+'</strong>'+button('Open calf','open-calf',c.id)+'</div><p class="'+(due(h)?'alert':'')+'">'+(due(h)?'Due · ':'Scheduled · ')+esc(h.follow)+'</p><p>'+esc(h.note)+'</p>'+button('Mark checked','checked',c.id+'|'+h.id)+'</article>').join('')||'<p class="hint">No open follow-ups.</p>');
  }else{
-  view.innerHTML='<h2>Records and backup</h2><p class="hint">Records live in this browser. Export a backup to keep a copy or transfer to another device.</p><div class="actions">'+button('Export backup','export','',true)+button('Restore backup','restore')+button('Recover paddocks and groups','recover-farm')+'</div>'+farmRecoverySummary()+registerSummary()+'<h2>Group moves</h2>'+(data.moves.map((move,index)=>({move,index})).reverse().map(({move:m,index})=>'<article class="card"><strong>'+esc(m.group)+'</strong><p>'+esc(m.from)+' → '+esc(m.to)+' · '+m.count+' calves</p><small>'+esc(new Date(m.at).toLocaleString('en-AU'))+'</small><div class="actions">'+button('Delete move','delete-move',index)+'</div></article>').join('')||'<p class="hint">No group moves recorded.</p>');
+  view.innerHTML='<h2>Records and backup</h2><p class="hint">Records live in this browser. Export a backup to keep a copy or transfer to another device.</p><div class="actions">'+button('Export backup','export','',true)+button('Restore backup','restore')+button('Recover paddocks and groups','recover-farm')+'</div>'+farmRecoverySummary()+registerSummary()+'<h2>Deceased calves ('+data.calves.filter(c=>c.deathDate).length+')</h2>'+(data.calves.filter(c=>c.deathDate).sort((a,b)=>b.deathDate.localeCompare(a.deathDate)).map(c=>'<article class="card row"><div><strong>Tag '+esc(c.tag)+'</strong><p>'+esc(c.deathDate+' · '+(c.deathCause||'Cause not recorded'))+'</p></div>'+button('Edit record','edit-death',c.id)+'</article>').join('')||'<p class="hint">No deceased calves recorded.</p>')+'<h2>Group moves</h2>'+(data.moves.map((move,index)=>({move,index})).reverse().map(({move:m,index})=>'<article class="card"><strong>'+esc(m.group)+'</strong><p>'+esc(m.from)+' → '+esc(m.to)+' · '+m.count+' calves</p><small>'+esc(new Date(m.at).toLocaleString('en-AU'))+'</small><div class="actions">'+button('Delete move','delete-move',index)+'</div></article>').join('')||'<p class="hint">No group moves recorded.</p>');
  }
 }
 function mapTabs(pages,active){
@@ -277,7 +277,7 @@ function recordPoint(e,board){
  render();
 }
 function renderCalves(){
- $('calf-list').innerHTML=data.calves.filter(c=>c.tag.toLowerCase().includes(query.trim().toLowerCase())).map(c=>'<div class="card row"><div><strong>Tag '+esc(c.tag)+'</strong><p>'+esc(c.weaned?'Weaned '+c.weaned:by(data.groups,c.group)?.name??'Ungrouped')+'</p><p>'+esc((c.type==='Beef'?'Beef':c.type==='Dairy'?'Friesian heifer':'Calf')+' · Born '+(c.birth||'unknown')+(c.birthBasis&&c.birthBasis!=='Dated note'?' (estimated)':''))+'</p></div>'+button('Open calf','open-calf',c.id)+'</div>').join('')||'<p class="hint">No matching calf records.</p>';
+ $('calf-list').innerHTML=data.calves.filter(c=>c.tag.toLowerCase().includes(query.trim().toLowerCase())).map(c=>'<div class="card row"><div><strong>Tag '+esc(c.tag)+'</strong><p>'+esc(c.deathDate?'Deceased '+c.deathDate:c.weaned?'Weaned '+c.weaned:by(data.groups,c.group)?.name??'Ungrouped')+'</p><p>'+esc((c.type==='Beef'?'Beef':c.type==='Dairy'?'Friesian heifer':'Calf')+' · Born '+(c.birth||'unknown')+(c.birthBasis&&c.birthBasis!=='Dated note'?' (estimated)':''))+'</p></div>'+button('Open calf','open-calf',c.id)+'</div>').join('')||'<p class="hint">No matching calf records.</p>';
 }
 function show(title,body,onSave,saveLabel='Save'){
  const dialog=$('dialog');
@@ -294,6 +294,18 @@ function move(groupId,zoneId,settings={}){
  return commit(d=>{const group=by(d.groups,groupId);Object.assign(group,settings,{zone:zoneId});d.moves.push(entry)},g.name+' moved to '+z.name+'.');
 }
 
+function recordDeceased(calfId,existing=false){
+ const calf=by(data.calves,calfId);if(!calf)return;
+ show((existing?'Edit deceased record · ':'Record deceased calf · ')+calf.tag,
+ '<p>Calf '+esc(calf.tag)+' · history is retained.</p>'+
+ field('Date of death',input('deathDate',calf.deathDate||today(),'type="date" required max="'+today()+'"'))+
+ field('Cause of death','<textarea name="deathCause" required placeholder="Cause of death, or Unknown">'+esc(calf.deathCause??'')+'</textarea>'),v=>{
+  if(!v.deathDate||v.deathDate>today())return error('Enter a date on or before today.');
+  v.deathCause=v.deathCause.trim();
+  if(!v.deathCause)return error('Enter a cause of death, or Unknown.');
+  return commit(d=>{const c=by(d.calves,calfId);c.deathDate=v.deathDate;c.deathCause=v.deathCause;},'Deceased calf '+calf.tag+' recorded.');
+ },existing?'Save changes':'Confirm deceased calf');
+}
 function penCalfPicker(zoneId){
  const zone=by(data.zones,zoneId);
  if(!zone||zone.kind!=='Pen'||editing)return;
@@ -304,7 +316,7 @@ function penCalfPicker(zoneId){
  const inputEl=$('pen-calf-search');
  const renderMatches=()=>{
   const term=inputEl.value.trim().toLowerCase();
-  const matches=term?data.calves.filter(c=>!c.weaned&&String(c.tag).toLowerCase().includes(term)).slice(0,30):[];
+  const matches=term?data.calves.filter(c=>!c.weaned&&!c.deathDate&&String(c.tag).toLowerCase().includes(term)).slice(0,30):[];
   $('pen-calf-results').innerHTML=!term?'<p class="hint">Enter a calf number to search.</p>':
    matches.length?matches.map(c=>{
     const group=by(data.groups,c.group),location=group&&by(data.zones,group.zone);
@@ -317,7 +329,7 @@ function penCalfPicker(zoneId){
 }
 function assignExistingCalfToPen(zoneId,calfId){
  const zone=by(data.zones,zoneId),calf=by(data.calves,calfId);
- if(!zone||zone.kind!=='Pen'||!calf||calf.weaned){say('That active calf or pen is no longer available.');return}
+ if(!zone||zone.kind!=='Pen'||!calf||calf.weaned||calf.deathDate){say('That active calf or pen is no longer available.');return}
  const original=by(data.groups,calf.group);
  if(original?.zone===zoneId){$('dialog').close();say('Calf '+calf.tag+' is already in '+zone.name+'.');return}
  const groupsInPen=data.groups.filter(g=>g.zone===zoneId);
@@ -470,6 +482,8 @@ document.addEventListener('click',e=>{
  if(a==='recover-farm'){recoverFarmForm();return}
  if(a==='farm-recovery-details'){showFarmRecovery();return}
  if(a==='add-group-calf'){calfForm(undefined,k);return}
+ if(a==='edit-death'){recordDeceased(k,true);return}
+ if(a==='record-death'){recordDeceased(k);return}
  if(a==='pen-assign-calf'){const [zoneId,calfId]=k.split('|');assignExistingCalfToPen(zoneId,calfId);return}
  if(a==='zone'){
   const z=by(data.zones,k);
@@ -489,8 +503,8 @@ document.addEventListener('click',e=>{
  }
  if(a==='open-group'){
   const g=by(data.groups,k);if(!g)return;
-  const calves=data.calves.filter(c=>c.group===k);
-  const tags=calves.map(c=>'<div class="card row"><span>Tag '+esc(c.tag)+(c.weaned?' · Weaned':'')+'</span>'+button('Open','open-calf',c.id)+'</div>').join('');
+  const calves=data.calves.filter(c=>c.group===k&&!c.deathDate);
+  const tags=calves.map(c=>'<div class="card row"><span>Tag '+esc(c.tag)+(c.weaned?' · Weaned':'')+'</span>'+button('Open','open-calf',c.id)+(!c.weaned?button('Deceased','record-death',c.id):'')+'</div>').join('');
   const heading=groupType(g)+' Group '+groupNumber(g)+' · '+g.name;
   const summary='<p>'+esc(by(data.zones,g.zone).name)+' · '+groupHeadcount(g)+' calves</p>';
   const reminder=vaccinationStart(g)?'<p class="'+(vaccinationDue(g)?'alert':'hint')+'">'+esc(vaccinationStatus(g)+' · '+vaccinationLabel(g))+'</p>':'';
@@ -510,7 +524,7 @@ document.addEventListener('click',e=>{
  }
  if(a==='open-calf'){
   const c=by(data.calves,k),g=by(data.groups,c.group);
-  show('Calf '+c.tag,'<p>'+esc(c.weaned?'Weaned '+c.weaned:g?g.name+' · '+by(data.zones,g.zone).name:'Ungrouped')+'</p><p>Born '+esc(c.birth||'—')+' · Dam '+esc(c.dam||'—')+'</p>'+(c.birthBasis?'<p class="hint">'+esc(c.birthBasis)+'</p>':'')+'<p>'+esc(c.notes)+'</p><div class="actions">'+button('Log health entry','health',k,true)+button('Edit calf','calf',k)+'</div><h3>Health history</h3>'+(c.health.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(h=>'<article class="card"><strong>'+esc(h.date)+'</strong><p>'+esc(h.note)+'</p>'+(h.treatment?'<p>Treatment · '+esc(h.treatment)+'</p>':'')+(h.follow?'<p>Follow-up · '+esc(h.follow)+(h.done?' · Checked':'')+'</p>':'')+'</article>').join('')||'<p>No entries yet.</p>'));return;
+  show('Calf '+c.tag,'<p>'+esc(c.deathDate?'Deceased '+c.deathDate+' · '+(c.deathCause||'Unknown'):c.weaned?'Weaned '+c.weaned:g?g.name+' · '+by(data.zones,g.zone).name:'Ungrouped')+'</p><p>Born '+esc(c.birth||'—')+' · Dam '+esc(c.dam||'—')+'</p>'+(c.birthBasis?'<p class="hint">'+esc(c.birthBasis)+'</p>':'')+'<p>'+esc(c.notes)+'</p><div class="actions">'+button('Log health entry','health',k,true)+button('Edit calf','calf',k)+(c.deathDate?button('Edit death details','edit-death',k):!c.weaned?button('Mark deceased','record-death',k):'')+'</div><h3>Health history</h3>'+(c.health.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(h=>'<article class="card"><strong>'+esc(h.date)+'</strong><p>'+esc(h.note)+'</p>'+(h.treatment?'<p>Treatment · '+esc(h.treatment)+'</p>':'')+(h.follow?'<p>Follow-up · '+esc(h.follow)+(h.done?' · Checked':'')+'</p>':'')+'</article>').join('')||'<p>No entries yet.</p>'));return;
  }
  if(a==='health'){
   show('Log health entry',field('Entry date',input('date',today(),'type="date" required max="'+today()+'"'))+field('Observation or reason','<textarea name="note" required></textarea>')+field('Treatment given','<textarea name="treatment" placeholder="Product, dose and time if applicable"></textarea>')+field('Follow-up date',input('follow','','type="date"')),v=>{
@@ -593,7 +607,7 @@ function validBackup(x){
   &&unique(x.groups)&&x.groups.every(g=>strings(g,['name'])&&by(x.zones,g.zone)&&(g.type===undefined||groupTypes.includes(g.type))
    &&(g.headcount==null||(Number.isSafeInteger(g.headcount)&&g.headcount>=0))
    &&[g.firstVaccinated,g.vaccinated,g.vaccinationDue].every(value=>value===undefined||value===''||(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value+'T00:00:00Z')))))
-  &&unique(x.calves)&&x.calves.every(c=>strings(c,['tag','birth','dam','group','weaned','notes'])&&(!c.group||by(x.groups,c.group))&&unique(c.health)&&c.health.every(h=>strings(h,['date','note','treatment','follow'])&&typeof h.done==='boolean'))
+  &&unique(x.calves)&&x.calves.every(c=>strings(c,['tag','birth','dam','group','weaned','notes'])&&(!c.group||by(x.groups,c.group))&&(c.deathDate===undefined||(typeof c.deathDate==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(c.deathDate)))&&(c.deathCause===undefined||typeof c.deathCause==='string')&&unique(c.health)&&c.health.every(h=>strings(h,['date','note','treatment','follow'])&&typeof h.done==='boolean'))
   &&Array.isArray(x.moves)&&x.moves.every(m=>m&&strings(m,['group','from','to','at'])&&Number.isInteger(m.count));
 }
 $('restore').onchange=async e=>{
