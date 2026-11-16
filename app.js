@@ -430,6 +430,17 @@ function calfForm(c,group=c?.group??''){
  });
 }
 document.addEventListener('input',e=>{if(e.target.id==='search'){query=e.target.value;renderCalves()}});
+let vaccineSwipeX=null;
+document.addEventListener('touchstart',e=>{
+ const row=e.target.closest('.vaccine-swipe');if(!row)return;
+ vaccineSwipeX={row,x:e.touches[0].clientX,y:e.touches[0].clientY};
+},{passive:true});
+document.addEventListener('touchend',e=>{
+ if(!vaccineSwipeX)return;
+ const {row,x,y}=vaccineSwipeX;vaccineSwipeX=null;
+ const t=e.changedTouches[0],dx=t.clientX-x,dy=t.clientY-y;
+ if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.5)row.classList.toggle('revealed',dx<0);
+},{passive:true});
 document.addEventListener('click',e=>{
  const b=e.target.closest('[data-action]');if(!b){const board=e.target.closest('#board');if(draft&&board)recordPoint(e,board);return}
  const a=b.dataset.action,k=b.dataset.id;
@@ -465,6 +476,14 @@ document.addEventListener('click',e=>{
  }
  if(a==='remove-image'){commit(d=>{delete d.images[mapPage]},'Reference image removed.');return}
 
+ if(a==='delete-vaccination'){
+  const [gid,name]=k.split('|');
+  if(!['firstVaccinated','vaccinated'].includes(name))return;
+  const group=by(data.groups,gid);
+  if(!group||!group[name])return;
+  show('Delete vaccination date?','<p>'+esc(name==='firstVaccinated'?'First vaccination':'Last vaccination')+' · '+esc(group[name])+'</p><p>This removes only this recorded date. Other group and calf records will be kept.</p>',()=>commit(d=>{by(d.groups,gid)[name]=''},'Vaccination date deleted.'),'Delete vaccination');
+  return;
+ }
  if(a==='vaccinated-today'){
   const form=b.form;
   const date=today();
@@ -512,7 +531,7 @@ document.addEventListener('click',e=>{
   const reminder=vaccinationStart(g)?'<p class="'+(vaccinationDue(g)?'alert':'hint')+'">'+esc(vaccinationStatus(g)+' · '+vaccinationLabel(g))+'</p>':'';
   const headcount=field('Headcount',input('headcount',g.headcount,'type="number" min="0" max="'+Number.MAX_SAFE_INTEGER+'" step="1" placeholder="'+groupCalves(k).length+'"'));
   const vaccinations=(!g.firstVaccinated||vaccinationWindow(g)?button(g.firstVaccinated?'Vaccinated today · booster':'Vaccinated today · first dose','vaccinated-today'):'')+
-   field('First vaccination',input('firstVaccinated',g.firstVaccinated,'type="date" max="'+today()+'"'))+field('Last vaccinated',input('vaccinated',g.vaccinated,'type="date" max="'+today()+'"'))+field('Override next due date',input('vaccinationDue',g.vaccinationDue,'type="date"'))+'<p class="hint">With a first vaccination date, the app shows your 4–6 week booster window. Leave the override blank to use that window.</p>';
+   field('First vaccination',input('firstVaccinated',g.firstVaccinated,'type="date" max="'+today()+'"'))+field('Last vaccinated',input('vaccinated',g.vaccinated,'type="date" max="'+today()+'"'))+field('Override next due date',input('vaccinationDue',g.vaccinationDue,'type="date"'))+'<p class="hint">With a first vaccination date, the app shows your 4–6 week booster window. Leave the override blank to use that window.</p>'+['firstVaccinated','vaccinated'].filter(name=>g[name]).map(name=>'<div class="vaccine-swipe" data-vaccine="'+name+'" data-group="'+esc(g.id)+'"><span>'+esc(name==='firstVaccinated'?'First vaccination':'Last vaccination')+' · '+esc(g[name])+'</span>'+button('Delete','delete-vaccination',g.id+'|'+name)+'</div>').join('')+'<p class="hint">Swipe a recorded vaccination left to reveal Delete, or tap Delete directly.</p>';
   const destination=field('Move to',select('destination',data.zones.map(z=>option(z.id,z.name,g.zone)).join('')));
   const register='<h3>Calf ear tags</h3>'+(tags||'<p class="hint">No individual calves recorded yet.</p>')+button('Add calf to group','add-group-calf',k)+button('Assign calf range','assign-range',k);
   show(heading,summary+reminder+headcount+'<p class="hint">Leave headcount blank to count the unweaned calves recorded in this group.</p>'+vaccinations+typeField(groupType(g))+destination+register,v=>{
