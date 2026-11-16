@@ -311,7 +311,7 @@ function recordDeceased(calfId,existing=false){
 function penCalfPicker(zoneId){
  const zone=by(data.zones,zoneId);
  if(!zone||zone.kind!=='Pen'||editing)return;
- const body='<p>Search for an existing calf by ear tag. Selecting it adds the calf to the pen's group in '+esc(zone.name)+'.</p>'+
+ const body='<p>Search for an existing calf by ear tag. Selecting it adds the calf to the existing pen group in '+esc(zone.name)+'.</p>'+
   field('Calf number', '<input id="pen-calf-search" class="search" type="search" inputmode="numeric" autocomplete="off" placeholder="Enter calf ear tag" aria-label="Search calf number">')+
   '<div id="pen-calf-results" aria-live="polite"></div>';
  show('Add calf to '+zone.name,body);
