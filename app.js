@@ -133,7 +133,8 @@ function groupButtons(z){
   const number=groupNumber(g);
   const vaccineAlert=vaccinationDue(g);
   const details=type+' Group '+number+' · '+g.name+' · '+groupHeadcount(g)+' calves'+(checks?' · '+checks+' checks due':'')+(vaccineAlert?' · '+vaccinationStatus(g):'');
-  return '<button type="button" class="group" data-action="open-group" data-group="'+esc(g.id)+'" data-id="'+esc(g.id)+'" title="'+esc(details)+'" aria-label="'+esc(details)+'">'+calfIcon(type)+'<span>'+number+'</span>'+(vaccineAlert?'<span class="alert" aria-hidden="true">!</span>':'')+'</button>';
+  const calfChips=tab==='Map'&&mapPage==='shed'&&!editing?calves.map(c=>'<button type="button" class="calf-drag-chip" data-calf-drag="'+esc(c.id)+'" data-action="open-calf" data-id="'+esc(c.id)+'" title="Drag calf '+esc(c.tag)+' to dead calf bucket">'+esc(c.tag)+'</button>').join(''):'';
+  return '<button type="button" class="group" data-action="open-group" data-group="'+esc(g.id)+'" data-id="'+esc(g.id)+'" title="'+esc(details)+'" aria-label="'+esc(details)+'">'+calfIcon(type)+'<span>'+number+'</span>'+(vaccineAlert?'<span class="alert" aria-hidden="true">!</span>':'')+'</button>'+calfChips;
  }).join('');
 }
 function pointsAttr(points){return points.map(([x,y])=>x+','+y).join(' ')}
@@ -259,7 +260,8 @@ function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const toolbar=active?'<p class="hint"><strong>'+esc(active.name)+'</strong> · '+(draft.vertex==null?'Tap the map to add corners, or tap a corner to move or remove it.':'Tap the new position for corner '+(draft.vertex+1)+'.')+'</p><div class="actions">'+button('Save outline','save-outline','',true)+button('Undo last corner','undo-point')+(draft.vertex==null?'':button('Remove selected corner','remove-point'))+button('Redraw','redraw')+button('Cancel','cancel-outline')+'</div>':'';
  const calfPaddock=shed&&!editing&&!draft?data.zones.find(z=>z.kind==='Paddock'&&z.name.trim().toLowerCase()==='calf paddock'):null;
  const paddockDrop=calfPaddock?'<div class="shed-north-area"><div class="north-caption">NORTH · OUTSIDE SHED</div><section class="calf-paddock-drop zone" data-zone="'+esc(calfPaddock.id)+'" data-kind="Paddock" aria-label="Calf Paddock · drop group here"><strong>Calf Paddock</strong><small>Drop groups here</small>'+groupButtons(calfPaddock)+'</section></div>':'';
- return toolbar+paddockDrop+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+'">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
+ const deadBucket=shed&&!editing&&!draft?'<div class="dead-bucket-row"><section class="dead-bucket" id="dead-calf-bucket" aria-label="Deceased calf bucket"><span aria-hidden="true">🪣</span><strong>Dead calves</strong><small>Drop individual calf here</small></section></div>':'';
+  return toolbar+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+'">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
  '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'" points="'+pointsAttr(z.shape)+'"/>').join('')+
  (active?'<'+(draft.points.length>=3?'polygon':'polyline')+' class="draft" points="'+pointsAttr(draft.points)+'"/>':'')+'</svg>'+
  (overview?'<div class="label shed-link" style="'+position(labelPoint(shell))+'">'+(editing?'<button type="button" data-layout-move="shed">Move shed</button>':button('Shed','map-page','shed'))+'</div>':'')+
@@ -648,10 +650,27 @@ document.addEventListener('pointerdown',e=>{
   e.target.setPointerCapture(e.pointerId);
   return;
  }
- const el=e.target.closest('[data-group]');if(!el||e.button!==0||!e.isPrimary)return;
+ const calf=e.target.closest('[data-calf-drag]');
+  if(calf&&mapPage==='shed'&&!editing&&e.button===0&&e.isPrimary){
+   calfDrag={pointer:e.pointerId,x:e.clientX,y:e.clientY,calf:calf.dataset.calfDrag};return;
+  }
+  const el=e.target.closest('[data-group]');if(!el||e.button!==0||!e.isPrimary)return;
  drag={pointer:e.pointerId,x:e.clientX,y:e.clientY,group:el.dataset.group};
 });
 document.addEventListener('pointermove',e=>{
+ if(calfDrag?.pointer===e.pointerId){
+  if(!calfDrag.ghost&&Math.hypot(e.clientX-calfDrag.x,e.clientY-calfDrag.y)>9){
+   $('view').setPointerCapture(e.pointerId);
+   calfDrag.ghost=document.createElement('div');calfDrag.ghost.className='ghost';
+   calfDrag.ghost.textContent='Calf '+(by(data.calves,calfDrag.calf)?.tag??'');
+   document.body.append(calfDrag.ghost);
+  }
+  if(calfDrag.ghost){
+   calfDrag.ghost.style.left=e.clientX+'px';calfDrag.ghost.style.top=e.clientY+'px';
+   $('dead-calf-bucket')?.classList.toggle('target',Boolean(document.elementFromPoint(e.clientX,e.clientY)?.closest('#dead-calf-bucket')));
+  }
+  return;
+ }
  if(shedDrag?.pointer===e.pointerId){
   const {x,y,width,height,offset}=shedDrag;
   previewShedPosition(offset[0]+(e.clientX-x)*1000/width,offset[1]+(e.clientY-y)*1000/height);
@@ -677,6 +696,18 @@ document.addEventListener('pointermove',e=>{
 let suppressClick=false;
 document.addEventListener('click',e=>{if(suppressClick&&e.detail){e.stopImmediatePropagation();e.preventDefault();suppressClick=false}},true);
 function finishDrag(e){
+ if(calfDrag?.pointer===e.pointerId){
+  const current=calfDrag;calfDrag=null;
+  if(!current.ghost)return;
+  current.ghost.remove();
+  const bucket=document.elementFromPoint(e.clientX,e.clientY)?.closest('#dead-calf-bucket');
+  $('dead-calf-bucket')?.classList.remove('target');
+  if(e.type==='pointerup'){
+   suppressClick=true;setTimeout(()=>{suppressClick=false},350);
+   if(bucket)recordDeceased(current.calf);
+  }
+  return;
+ }
  if(shedDrag?.pointer===e.pointerId){
   const previous=shedDrag.previous;
   shedDrag=null;
