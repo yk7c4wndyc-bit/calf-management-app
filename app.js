@@ -10,6 +10,7 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const id=()=>crypto.randomUUID();
 const today=()=>new Date().toLocaleDateString('sv-SE');
 const by=(rows,key)=>rows.find(row=>row.id===key);
+let penHoldTimer=null,penHoldStart=null,penHoldTriggered=false;
 let storageLoadFailed=false;
 let data=structuredClone(defaults),tab='Map',editing=false,query='',drag,mapPage='farm',draft,shedPlacement,shedDrag;
 try {const saved=localStorage.getItem(key);if(saved)data=JSON.parse(saved)} catch {storageLoadFailed=true;say('Saved records could not be loaded. They have been left untouched. Use Records to restore a backup.');}
@@ -85,7 +86,7 @@ function render(){
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.'):'Drag a group onto a pen or paddock, or tap it and choose a destination from any map.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):''):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):''):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
    (overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
@@ -290,6 +291,72 @@ function move(groupId,zoneId,settings={}){
  const entry={group:g.name,from:by(data.zones,g.zone).name,to:z.name,count:settings.headcount===null?groupCalves(g.id).length:settings.headcount??groupHeadcount(g),at:new Date().toISOString()};
  return commit(d=>{const group=by(d.groups,groupId);Object.assign(group,settings,{zone:zoneId});d.moves.push(entry)},g.name+' moved to '+z.name+'.');
 }
+
+function penCalfPicker(zoneId){
+ const zone=by(data.zones,zoneId);
+ if(!zone||zone.kind!=='Pen'||editing)return;
+ const body='<p>Search for an existing calf by ear tag. Selecting it creates a one-calf group in '+esc(zone.name)+'.</p>'+
+  field('Calf number', '<input id="pen-calf-search" class="search" type="search" inputmode="numeric" autocomplete="off" placeholder="Enter calf ear tag" aria-label="Search calf number">')+
+  '<div id="pen-calf-results" aria-live="polite"></div>';
+ show('Add calf to '+zone.name,body);
+ const inputEl=$('pen-calf-search');
+ const renderMatches=()=>{
+  const term=inputEl.value.trim().toLowerCase();
+  const matches=term?data.calves.filter(c=>!c.weaned&&String(c.tag).toLowerCase().includes(term)).slice(0,30):[];
+  $('pen-calf-results').innerHTML=!term?'<p class="hint">Enter a calf number to search.</p>':
+   matches.length?matches.map(c=>{
+    const group=by(data.groups,c.group),location=group&&by(data.zones,group.zone);
+    return '<div class="card row"><span><strong>Tag '+esc(c.tag)+'</strong><small> · '+esc(location?.name??'Ungrouped')+'</small></span>'+button('Add to pen','pen-assign-calf',zoneId+'|'+c.id)+'</div>';
+   }).join(''):'<p class="hint">No matching active calf found.</p>';
+ };
+ inputEl.addEventListener('input',renderMatches);
+ renderMatches();
+ inputEl.focus();
+}
+function assignExistingCalfToPen(zoneId,calfId){
+ const zone=by(data.zones,zoneId),calf=by(data.calves,calfId);
+ if(!zone||zone.kind!=='Pen'||!calf||calf.weaned){say('That active calf or pen is no longer available.');return}
+ const original=by(data.groups,calf.group);
+ if(original?.zone===zoneId){$('dialog').close();say('Calf '+calf.tag+' is already in '+zone.name+'.');return}
+ const newGroupId=id(),groupName='Calf '+calf.tag;
+ const saved=commit(d=>{
+  const c=by(d.calves,calfId);
+  d.groups.push({id:newGroupId,name:groupName,type:c.type==='Beef'?'Beef':'Dairy',zone:zoneId});
+  c.group=newGroupId;
+  d.moves.push({group:groupName,from:original?by(data.zones,original.zone)?.name??'Unknown':'Ungrouped',to:zone.name,count:1,at:new Date().toISOString()});
+ },'Calf '+calf.tag+' added to '+zone.name+' in its own group.');
+ if(saved)$('dialog').close();
+}
+function cancelPenHold(){if(penHoldTimer!==null)clearTimeout(penHoldTimer);penHoldTimer=null;penHoldStart=null}
+document.addEventListener('pointerdown',e=>{
+ if(tab!=='Map'||mapPage!=='shed'||editing||draft||!e.isPrimary||e.button!==0)return;
+ if(e.target.closest('[data-group],button,[data-layout-resize],[data-layout-move]'))return;
+ const target=e.target.closest('[data-zone]');
+ const zone=target&&by(data.zones,target.dataset.zone);
+ if(!zone||zone.kind!=='Pen')return;
+ cancelPenHold();
+ penHoldTriggered=false;
+ penHoldStart={pointer:e.pointerId,x:e.clientX,y:e.clientY,zoneId:zone.id};
+ penHoldTimer=setTimeout(()=>{
+  const targetZone=penHoldStart?.zoneId;
+  cancelPenHold();
+  if(!targetZone)return;
+  penHoldTriggered=true;
+  penCalfPicker(targetZone);
+ },550);
+});
+document.addEventListener('pointermove',e=>{
+ if(penHoldStart?.pointer===e.pointerId&&Math.hypot(e.clientX-penHoldStart.x,e.clientY-penHoldStart.y)>12)cancelPenHold();
+});
+for(const eventName of ['pointerup','pointercancel','scroll'])document.addEventListener(eventName,cancelPenHold,true);
+document.addEventListener('contextmenu',e=>{
+ const z=e.target.closest('[data-zone]');
+ if(tab==='Map'&&mapPage==='shed'&&!editing&&z&&by(data.zones,z.dataset.zone)?.kind==='Pen'){
+  e.preventDefault();
+  if(!penHoldTriggered){cancelPenHold();penCalfPicker(z.dataset.zone)}
+ }
+});
+
 function parseDailyNote(note,year){
  const rows=[],review=[],seen=new Set(data.calves.map(c=>c.tag.toLowerCase()));
  let birth='',truck=0,duplicates=0;
@@ -347,7 +414,7 @@ document.addEventListener('input',e=>{if(e.target.id==='search'){query=e.target.
 document.addEventListener('click',e=>{
  const b=e.target.closest('[data-action]');if(!b){const board=e.target.closest('#board');if(draft&&board)recordPoint(e,board);return}
  const a=b.dataset.action,k=b.dataset.id;
- if(a==='tab'){draft=null;shedPlacement=null;tab=k;render();return}
+ if(a==='tab'){cancelPenHold();draft=null;shedPlacement=null;tab=k;render();return}
  if(a==='close'){$('dialog').close();return}
  if(a==='layout'){draft=null;shedPlacement=null;editing=!editing;render();return}
  if(a==='save-shed-position'){
@@ -356,7 +423,7 @@ document.addEventListener('click',e=>{
   if(!commit(d=>{d.shedPosition=offset},'Shed position saved.'))shedPlacement=offset;
   return;
  }
- if(a==='map-page'){draft=null;shedPlacement=null;mapPage=k;render();return}
+ if(a==='map-page'){cancelPenHold();draft=null;shedPlacement=null;mapPage=k;render();return}
  if(a==='outline'){draft={id:k,points:structuredClone((k==='shed-footprint'?data.shedOutline:by(data.zones,k).shape)??[]),vertex:null};render();$('board').scrollIntoView({block:'nearest'});return}
  if(a==='vertex'){draft.vertex=draft.vertex===Number(k)?null:Number(k);render();return}
  if(a==='remove-point'){draft.points.splice(draft.vertex,1);draft.vertex=null;render();return}
@@ -398,6 +465,7 @@ document.addEventListener('click',e=>{
  if(a==='recover-farm'){recoverFarmForm();return}
  if(a==='farm-recovery-details'){showFarmRecovery();return}
  if(a==='add-group-calf'){calfForm(undefined,k);return}
+ if(a==='pen-assign-calf'){const [zoneId,calfId]=k.split('|');assignExistingCalfToPen(zoneId,calfId);return}
  if(a==='zone'){
   const z=by(data.zones,k);
   const mapArea=z?.mapArea??(!z&&mapPage.startsWith('location:')?mapPage:undefined);
