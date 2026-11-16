@@ -295,7 +295,7 @@ function move(groupId,zoneId,settings={}){
 function penCalfPicker(zoneId){
  const zone=by(data.zones,zoneId);
  if(!zone||zone.kind!=='Pen'||editing)return;
- const body='<p>Search for an existing calf by ear tag. Selecting it creates a one-calf group in '+esc(zone.name)+'.</p>'+
+ const body='<p>Search for an existing calf by ear tag. Selecting it adds the calf to the pen's group in '+esc(zone.name)+'.</p>'+
   field('Calf number', '<input id="pen-calf-search" class="search" type="search" inputmode="numeric" autocomplete="off" placeholder="Enter calf ear tag" aria-label="Search calf number">')+
   '<div id="pen-calf-results" aria-live="polite"></div>';
  show('Add calf to '+zone.name,body);
@@ -318,13 +318,16 @@ function assignExistingCalfToPen(zoneId,calfId){
  if(!zone||zone.kind!=='Pen'||!calf||calf.weaned){say('That active calf or pen is no longer available.');return}
  const original=by(data.groups,calf.group);
  if(original?.zone===zoneId){$('dialog').close();say('Calf '+calf.tag+' is already in '+zone.name+'.');return}
- const newGroupId=id(),groupName='Calf '+calf.tag;
+ const groupsInPen=data.groups.filter(g=>g.zone===zoneId);
+ const target=groupsInPen.find(g=>g.autoPenGroup)||groupsInPen[0];
+ const newGroupId=target?.id??id();
+ const groupName=target?.name??('Pen group - '+zone.name);
  const saved=commit(d=>{
   const c=by(d.calves,calfId);
-  d.groups.push({id:newGroupId,name:groupName,type:c.type==='Beef'?'Beef':'Dairy',zone:zoneId});
+  if(!target)d.groups.push({id:newGroupId,name:groupName,type:c.type==='Beef'?'Beef':'Dairy',zone:zoneId,autoPenGroup:true});
   c.group=newGroupId;
   d.moves.push({group:groupName,from:original?by(data.zones,original.zone)?.name??'Unknown':'Ungrouped',to:zone.name,count:1,at:new Date().toISOString()});
- },'Calf '+calf.tag+' added to '+zone.name+' in its own group.');
+ },'Calf '+calf.tag+' added to '+zone.name+' · '+groupName+'.');
  if(saved)$('dialog').close();
 }
 function cancelPenHold(){if(penHoldTimer!==null)clearTimeout(penHoldTimer);penHoldTimer=null;penHoldStart=null}
