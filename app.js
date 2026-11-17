@@ -11,6 +11,7 @@ const id=()=>crypto.randomUUID();
 const today=()=>new Date().toLocaleDateString('sv-SE');
 const by=(rows,key)=>rows.find(row=>row.id===key);
 let penHoldTimer=null,penHoldStart=null,penHoldTriggered=false,calfDrag=null,penMultiAdd=false;
+let penMoveId=null,penMoveDrag=null;
 let storageLoadFailed=false;
 let data=structuredClone(defaults),tab='Map',editing=false,query='',drag,mapPage='farm',draft,shedPlacement,shedDrag;
 try {const saved=localStorage.getItem(key);if(saved)data=JSON.parse(saved)} catch {storageLoadFailed=true;say('Saved records could not be loaded. They have been left untouched. Use Records to restore a backup.');}
@@ -86,13 +87,13 @@ function render(){
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Align selected pens','align-selected-shed-pens')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Align selected pens','align-selected-shed-pens')+(penMoveId?button('Cancel moving pen','cancel-move-pen'):'')+(data.shedPenMoveBefore?button('Undo last pen move','undo-move-pen'):'')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
    (overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
     (mapPage==='shed'?'<div class="card row"><strong>Shed footprint</strong>'+button(data.shedOutline?'Edit shed outline':'Draw shed outline','outline','shed-footprint')+'</div>':'')+
     locationRows.map(z=>'<div class="card row"><strong>'+esc(z.name)+'</strong><div>'+
-    (mapFor(z)===mapPage?button('Edit details','zone',z.id)+(mapPage==='shed'&&z.kind==='Pen'&&(z.strawStorage||/^Pen\s*\d+$/i.test(z.name))?button(z.strawStorage?'Restore pen':'Change to straw','toggle-straw',z.id):'')+button(z.shape?'Edit outline':'Draw outline','outline',z.id)+(!draft&&mapPage==='farm'&&!z.shape?button('Add separate image','separate-image',z.id):''):button('Open map','map-page',mapFor(z)))+
+    (mapFor(z)===mapPage?button('Edit details','zone',z.id)+(mapPage==='shed'&&z.kind==='Pen'&&(z.strawStorage||/^Pen\s*\d+$/i.test(z.name))?button(z.strawStorage?'Restore pen':'Change to straw','toggle-straw',z.id):'')+(mapPage==='shed'&&z.kind==='Pen'&&z.shape?button(penMoveId===z.id?'Moving — drag on map':'Move pen','move-shed-pen',z.id):'')+button(z.shape?'Edit outline':'Draw outline','outline',z.id)+(!draft&&mapPage==='farm'&&!z.shape?button('Add separate image','separate-image',z.id):''):button('Open map','map-page',mapFor(z)))+
     '</div></div>').join(''):'')+
    (unplaced.length?'<h3>'+ (zones.some(z=>z.shape)?'Locations without outlines':'Locations')+'</h3><div class="map">'+unplaced.map(z=>'<section class="zone" data-zone="'+esc(z.id)+'" data-kind="'+esc(z.kind)+'"><small>'+esc(z.kind)+'</small><h3>'+esc(z.name)+'</h3>'+groupButtons(z)+'</section>').join('')+'</div>':'');
  }else if(tab==='Calves'){
@@ -281,18 +282,58 @@ function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const frameAspect=aspect*width/height;
  const framePoint=([px,py])=>[(px-x)*1000/width,(py-y)*1000/height];
  const imageStyle=focused?' style="left:'+(-100*x/width)+'%;top:'+(-100*y/height)+'%;width:'+(100000/width)+'%;height:'+(100000/height)+'%"':'';
- const toolbar=active?'<p class="hint"><strong>'+esc(active.name)+'</strong> · '+(draft.vertex==null?'Tap the map to add corners, or tap a corner to move or remove it.':'Tap the new position for corner '+(draft.vertex+1)+'.')+'</p><div class="actions">'+button('Save outline','save-outline','',true)+button('Undo last corner','undo-point')+(draft.vertex==null?'':button('Remove selected corner','remove-point'))+button('Redraw','redraw')+button('Cancel','cancel-outline')+'</div>':'';
+ const toolbar=penMoveId&&!active?'<p class="hint"><strong>Move pen:</strong> touch and drag the highlighted pen outline to its correct position. Its shape and calves will stay unchanged. Tap Cancel moving pen to stop.</p>':active?'<p class="hint"><strong>'+esc(active.name)+'</strong> · '+(draft.vertex==null?'Tap the map to add corners, or tap a corner to move or remove it.':'Tap the new position for corner '+(draft.vertex+1)+'.')+'</p><div class="actions">'+button('Save outline','save-outline','',true)+button('Undo last corner','undo-point')+(draft.vertex==null?'':button('Remove selected corner','remove-point'))+button('Redraw','redraw')+button('Cancel','cancel-outline')+'</div>':'';
  const calfPaddock=shed&&!editing&&!draft?data.zones.find(z=>z.kind==='Paddock'&&z.name.trim().toLowerCase()==='calf paddock'):null;
  const paddockDrop=calfPaddock?'<div class="shed-north-area"><div class="north-caption">NORTH · OUTSIDE SHED</div><section class="calf-paddock-drop zone" data-zone="'+esc(calfPaddock.id)+'" data-kind="Paddock" aria-label="Calf Paddock · drop group here"><strong>Calf Paddock</strong><small>Drop groups here</small>'+groupButtons(calfPaddock)+'</section></div>':'';
  const deadBucket=shed&&!editing&&!draft?'<div class="dead-bucket-row"><section class="dead-bucket" id="dead-calf-bucket" aria-label="Deceased calf bucket"><span aria-hidden="true">🪣</span><strong>Dead calves</strong><small>Drop individual calf here</small></section></div>':'';
   return toolbar+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+'">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
- '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'"'+(z.strawStorage?' class="straw-zone"':'')+' points="'+pointsAttr(z.shape)+'"/>').join('')+
+ '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'"'+(penMoveId===z.id?' class="move-pen-target"':z.strawStorage?' class="straw-zone"':'')+' points="'+pointsAttr(z.shape)+'"/>').join('')+
  (active?'<'+(draft.points.length>=3?'polygon':'polyline')+' class="draft" points="'+pointsAttr(draft.points)+'"/>':'')+'</svg>'+
  (overview?'<div class="label shed-link" style="'+position(labelPoint(shell))+'">'+(editing?'<button type="button" data-layout-move="shed">Move shed</button>':button('Shed','map-page','shed'))+'</div>':'')+
  visible.map(z=>'<div class="label" data-zone="'+esc(z.id)+'" style="'+position(framePoint(labelPoint(z.shape)))+'"><span class="zone-name">'+esc(z.strawStorage?'STRAW':z.name)+'</span>'+(!draft?groupButtons(z):'')+'</div>').join('')+
  (overview&&editing?[...visible,{id:'shed',shape:shell}].filter(z=>z.shape).map(z=>layoutHandles(z)).join(''):'')+
  (active?draft.points.map((p,i)=>'<button type="button" class="vertex" data-action="vertex" data-id="'+i+'" aria-label="Move corner '+(i+1)+'" aria-pressed="'+(draft.vertex===i)+'" style="'+position(p)+'">'+'</button>').join(''):'')+'</div>';
 }
+// In Move Pen mode, translate the complete outline; do not move its corners separately.
+document.addEventListener('pointerdown',e=>{
+ if(!penMoveId||!editing||mapPage!=='shed'||!e.isPrimary)return;
+ const polygon=e.target.closest('polygon[data-zone]');
+ if(!polygon||polygon.dataset.zone!==penMoveId)return;
+ const board=$('board'),pen=by(data.zones,penMoveId);
+ if(!board||!pen||!Array.isArray(pen.shape))return;
+ e.preventDefault();e.stopPropagation();
+ const bounds=board.getBoundingClientRect();
+ const xs=pen.shape.map(p=>p[0]),ys=pen.shape.map(p=>p[1]);
+ penMoveDrag={id:pen.id,pointer:e.pointerId,x:e.clientX,y:e.clientY,bounds,polygon,original:structuredClone(pen.shape),
+  minX:Math.min(...xs),maxX:Math.max(...xs),minY:Math.min(...ys),maxY:Math.max(...ys)};
+ polygon.setPointerCapture?.(e.pointerId);
+},{capture:true});
+document.addEventListener('pointermove',e=>{
+ const d=penMoveDrag;if(!d||e.pointerId!==d.pointer)return;
+ e.preventDefault();
+ const dx=Math.max(-d.minX,Math.min(1000-d.maxX,((e.clientX-d.x)/d.bounds.width)*1000));
+ const dy=Math.max(-d.minY,Math.min(1000-d.maxY,((e.clientY-d.y)/d.bounds.height)*1000));
+ d.dx=dx;d.dy=dy;
+ d.polygon.setAttribute('transform','translate('+dx+' '+dy+')');
+ const label=[...document.querySelectorAll('#board .label[data-zone]')].find(el=>el.dataset.zone===d.id);
+ if(label)label.style.transform='translate('+dx*d.bounds.width/1000+'px,'+dy*d.bounds.height/1000+'px)';
+},{capture:true});
+function finishPenMove(e){
+ const d=penMoveDrag;if(!d||e.pointerId!==d.pointer)return;
+ penMoveDrag=null;
+ if(e.type==='pointercancel'){render();return}
+ const dx=Math.round(d.dx||0),dy=Math.round(d.dy||0);
+ if(!dx&&!dy){render();return}
+ penMoveId=null;
+ commit(records=>{
+  const pen=by(records.zones,d.id);
+  if(!pen)return;
+  records.shedPenMoveBefore={id:d.id,shape:d.original};
+  pen.shape=d.original.map(([x,y])=>[x+dx,y+dy]);
+ },'Pen moved without changing its outline. Undo last pen move is available.');
+}
+document.addEventListener('pointerup',finishPenMove,true);
+document.addEventListener('pointercancel',finishPenMove,true);
 function recordPoint(e,board){
  const r=board.getBoundingClientRect();
  const point=[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height].map(n=>Math.round(Math.min(1,Math.max(0,n))*1000));
@@ -471,11 +512,23 @@ document.addEventListener('touchend',e=>{
 document.addEventListener('click',e=>{
  const b=e.target.closest('[data-action]');if(!b){const board=e.target.closest('#board');if(draft&&board)recordPoint(e,board);return}
  const a=b.dataset.action,k=b.dataset.id;
- if(a==='tab'){cancelPenHold();draft=null;shedPlacement=null;tab=k;render();return}
+ if(a==='tab'){cancelPenHold();penMoveId=null;penMoveDrag=null;draft=null;shedPlacement=null;tab=k;render();return}
  if(a==='close'){$('dialog').close();return}
- if(a==='layout'){draft=null;shedPlacement=null;editing=!editing;render();return}
+ if(a==='layout'){draft=null;penMoveId=null;penMoveDrag=null;shedPlacement=null;editing=!editing;render();return}
 
 
+ if(a==='move-shed-pen'){
+  const pen=by(data.zones,k);
+  if(!pen||pen.kind!=='Pen'||mapFor(pen)!=='shed'||!Array.isArray(pen.shape))return;
+  draft=null;penMoveId=k;render();$('board')?.scrollIntoView({block:'nearest'});return;
+ }
+ if(a==='cancel-move-pen'){penMoveId=null;penMoveDrag=null;render();return}
+ if(a==='undo-move-pen'){
+  if(!data.shedPenMoveBefore)return;
+  const original=data.shedPenMoveBefore;
+  penMoveId=null;penMoveDrag=null;
+  commit(d=>{const pen=by(d.zones,original.id);if(pen)pen.shape=original.shape;delete d.shedPenMoveBefore},'Last pen move undone.');return;
+ }
  if(a==='align-selected-shed-pens'){
   const pens=data.zones.filter(z=>z.kind==='Pen'&&mapFor(z)==='shed'&&Array.isArray(z.shape)&&z.shape.length>=3)
     .sort((a,b)=>(Number(a.name.match(/\\d+/)?.[0])||999)-(Number(b.name.match(/\\d+/)?.[0])||999));
@@ -550,7 +603,7 @@ document.addEventListener('click',e=>{
   if(!commit(d=>{d.shedPosition=offset},'Shed position saved.'))shedPlacement=offset;
   return;
  }
- if(a==='map-page'){cancelPenHold();draft=null;shedPlacement=null;mapPage=k;render();return}
+ if(a==='map-page'){cancelPenHold();penMoveId=null;penMoveDrag=null;draft=null;shedPlacement=null;mapPage=k;render();return}
  if(a==='outline'){draft={id:k,points:structuredClone((k==='shed-footprint'?data.shedOutline:by(data.zones,k).shape)??[]),vertex:null};render();$('board').scrollIntoView({block:'nearest'});return}
  if(a==='vertex'){draft.vertex=draft.vertex===Number(k)?null:Number(k);render();return}
  if(a==='remove-point'){draft.points.splice(draft.vertex,1);draft.vertex=null;render();return}
