@@ -86,7 +86,7 @@ function render(){
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Align pen rows','align-shed-pens')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Align selected pens','align-selected-shed-pens')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
    (overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
@@ -475,14 +475,29 @@ document.addEventListener('click',e=>{
  if(a==='close'){$('dialog').close();return}
  if(a==='layout'){draft=null;shedPlacement=null;editing=!editing;render();return}
 
- if(a==='align-shed-pens'){
-  const pens=data.zones.filter(z=>z.kind==='Pen'&&mapFor(z)==='shed'&&Array.isArray(z.shape)&&z.shape.length>=3);
-  if(!pens.length){say('No shed pen outlines to align.');return}
-  const aligned=alignedShedShapes(pens);
-  show('Align shed pen rows?','<p>Align neighbouring pen tops, bottoms and nearby walls without changing calf assignments. You can undo this.</p>',()=>commit(d=>{
-   d.shedPenShapesBeforeSquare=pens.map(z=>({id:z.id,shape:structuredClone(z.shape)}));
-   for(const item of aligned){const z=by(d.zones,item.id);if(z)z.shape=item.shape}
-  },'Shed pen rows aligned.'),'Align pens');
+
+ if(a==='align-selected-shed-pens'){
+  const pens=data.zones.filter(z=>z.kind==='Pen'&&mapFor(z)==='shed'&&Array.isArray(z.shape)&&z.shape.length>=3)
+    .sort((a,b)=>(Number(a.name.match(/\\d+/)?.[0])||999)-(Number(b.name.match(/\\d+/)?.[0])||999));
+  if(pens.length<2){say('At least two drawn pens are needed for alignment.');return}
+  const choices='<p>Select only pens in the same physical row. The app will match their top and bottom edges but leave each pen’s left and right boundaries in place. Pens you do not select will not change.</p>'+
+   '<div class="shed-pen-choices">'+pens.map(z=>'<label><input type="checkbox" class="align-choice" value="'+esc(z.id)+'"> '+esc(z.name)+'</label>').join('')+'</div>'+
+   '<p class="hint">Do not select pens on opposite sides of an alleyway or pens intended to be offset.</p>';
+  show('Align selected pens',choices,()=>{
+   const selected=[...$('dialog').querySelectorAll('.align-choice:checked')].map(input=>input.value);
+   if(selected.length<2)return error('Choose at least two pens from the same row.');
+   const chosen=pens.filter(z=>selected.includes(z.id));
+   const boxes=chosen.map(z=>{const xs=z.shape.map(p=>p[0]),ys=z.shape.map(p=>p[1]);return {id:z.id,left:Math.min(...xs),right:Math.max(...xs),top:Math.min(...ys),bottom:Math.max(...ys)}});
+   const top=median(boxes.map(b=>b.top)),bottom=median(boxes.map(b=>b.bottom));
+   if(bottom-top<4)return error('These outlines cannot be aligned together.');
+   return commit(d=>{
+    d.shedPenShapesBeforeSquare=chosen.map(z=>({id:z.id,shape:structuredClone(z.shape)}));
+    for(const b of boxes){
+     const z=by(d.zones,b.id);
+     if(z)z.shape=[[b.left,top],[b.right,top],[b.right,bottom],[b.left,bottom]];
+    }
+   },selected.length+' selected pens aligned. Other pens and alleyways unchanged.');
+  },'Align selected pens');
   return;
  }
  if(a==='toggle-straw'){
