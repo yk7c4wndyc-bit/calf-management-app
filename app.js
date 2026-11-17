@@ -480,23 +480,31 @@ document.addEventListener('click',e=>{
   const pens=data.zones.filter(z=>z.kind==='Pen'&&mapFor(z)==='shed'&&Array.isArray(z.shape)&&z.shape.length>=3)
     .sort((a,b)=>(Number(a.name.match(/\\d+/)?.[0])||999)-(Number(b.name.match(/\\d+/)?.[0])||999));
   if(pens.length<2){say('At least two drawn pens are needed for alignment.');return}
-  const choices='<p>Select only pens in the same physical row. The app will match their top and bottom edges but leave each pen’s left and right boundaries in place. Pens you do not select will not change.</p>'+
+  const choices='<p>Choose the direction, then select only pens that should share the same edges. Unselected pens will not move.</p>'+
+   '<fieldset style="margin:10px 0;padding:10px;border:1px solid #9aab99;border-radius:8px"><legend>Alignment direction</legend>'+
+   '<label style="display:block;margin:5px 0"><input type="radio" name="shed-align-direction" value="horizontal" checked> Horizontal — line up top and bottom edges</label>'+
+   '<label style="display:block;margin:5px 0"><input type="radio" name="shed-align-direction" value="vertical"> Vertical — line up left and right edges</label></fieldset>'+
    '<div class="shed-pen-choices">'+pens.map(z=>'<label><input type="checkbox" class="align-choice" value="'+esc(z.id)+'"> '+esc(z.name)+'</label>').join('')+'</div>'+
-   '<p class="hint">Do not select pens on opposite sides of an alleyway or pens intended to be offset.</p>';
+   '<p class="hint">Do not select pens across alleyways or pens that need to remain offset. Undo pen alignment restores the last adjustment.</p>';
   show('Align selected pens',choices,()=>{
    const selected=[...$('dialog').querySelectorAll('.align-choice:checked')].map(input=>input.value);
-   if(selected.length<2)return error('Choose at least two pens from the same row.');
+   if(selected.length<2)return error('Choose at least two pens to align.');
+   const direction=$('dialog').querySelector('input[name="shed-align-direction"]:checked')?.value||'horizontal';
    const chosen=pens.filter(z=>selected.includes(z.id));
    const boxes=chosen.map(z=>{const xs=z.shape.map(p=>p[0]),ys=z.shape.map(p=>p[1]);return {id:z.id,left:Math.min(...xs),right:Math.max(...xs),top:Math.min(...ys),bottom:Math.max(...ys)}});
    const top=median(boxes.map(b=>b.top)),bottom=median(boxes.map(b=>b.bottom));
-   if(bottom-top<4)return error('These outlines cannot be aligned together.');
+   const left=median(boxes.map(b=>b.left)),right=median(boxes.map(b=>b.right));
+   if(direction==='horizontal'&&bottom-top<4)return error('These outlines cannot be aligned horizontally.');
+   if(direction==='vertical'&&right-left<4)return error('These outlines cannot be aligned vertically.');
    return commit(d=>{
     d.shedPenShapesBeforeSquare=chosen.map(z=>({id:z.id,shape:structuredClone(z.shape)}));
     for(const b of boxes){
      const z=by(d.zones,b.id);
-     if(z)z.shape=[[b.left,top],[b.right,top],[b.right,bottom],[b.left,bottom]];
+     if(z)z.shape=direction==='vertical'
+      ?[[left,b.top],[right,b.top],[right,b.bottom],[left,b.bottom]]
+      :[[b.left,top],[b.right,top],[b.right,bottom],[b.left,bottom]];
     }
-   },selected.length+' selected pens aligned. Other pens and alleyways unchanged.');
+   },selected.length+' selected pens aligned '+(direction==='vertical'?'vertically':'horizontally')+'. Unselected pens unchanged.');
   },'Align selected pens');
   return;
  }
