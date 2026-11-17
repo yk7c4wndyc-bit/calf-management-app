@@ -10,7 +10,7 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const id=()=>crypto.randomUUID();
 const today=()=>new Date().toLocaleDateString('sv-SE');
 const by=(rows,key)=>rows.find(row=>row.id===key);
-let penHoldTimer=null,penHoldStart=null,penHoldTriggered=false,calfDrag=null;
+let penHoldTimer=null,penHoldStart=null,penHoldTriggered=false,calfDrag=null,penMultiAdd=false;
 let storageLoadFailed=false;
 let data=structuredClone(defaults),tab='Map',editing=false,query='',drag,mapPage='farm',draft,shedPlacement,shedDrag;
 try {const saved=localStorage.getItem(key);if(saved)data=JSON.parse(saved)} catch {storageLoadFailed=true;say('Saved records could not be loaded. They have been left untouched. Use Records to restore a backup.');}
@@ -86,13 +86,13 @@ function render(){
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Square up pens','square-shed-pens')+(data.shedPenShapesBeforeSquare?button('Undo squaring','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Align pen rows','align-shed-pens')+button('Square up pens','square-shed-pens')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
    (overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
     (mapPage==='shed'?'<div class="card row"><strong>Shed footprint</strong>'+button(data.shedOutline?'Edit shed outline':'Draw shed outline','outline','shed-footprint')+'</div>':'')+
     locationRows.map(z=>'<div class="card row"><strong>'+esc(z.name)+'</strong><div>'+
-    (mapFor(z)===mapPage?button('Edit details','zone',z.id)+button(z.shape?'Edit outline':'Draw outline','outline',z.id)+(!draft&&mapPage==='farm'&&!z.shape?button('Add separate image','separate-image',z.id):''):button('Open map','map-page',mapFor(z)))+
+    (mapFor(z)===mapPage?button('Edit details','zone',z.id)+(mapPage==='shed'&&z.kind==='Pen'&&(z.strawStorage||/^Pen\s*\d+$/i.test(z.name))?button(z.strawStorage?'Restore pen':'Change to straw','toggle-straw',z.id):'')+button(z.shape?'Edit outline':'Draw outline','outline',z.id)+(!draft&&mapPage==='farm'&&!z.shape?button('Add separate image','separate-image',z.id):''):button('Open map','map-page',mapFor(z)))+
     '</div></div>').join(''):'')+
    (unplaced.length?'<h3>'+ (zones.some(z=>z.shape)?'Locations without outlines':'Locations')+'</h3><div class="map">'+unplaced.map(z=>'<section class="zone" data-zone="'+esc(z.id)+'" data-kind="'+esc(z.kind)+'"><small>'+esc(z.kind)+'</small><h3>'+esc(z.name)+'</h3>'+groupButtons(z)+'</section>').join('')+'</div>':'');
  }else if(tab==='Calves'){
@@ -127,6 +127,7 @@ function groupNumber(g){
  return data.groups.filter(group=>groupType(group)===type).indexOf(g)+1;
 }
 function groupButtons(z){
+ if(z.strawStorage)return '';
  return data.groups.filter(g=>g.zone===z.id).map(g=>{
   const calves=groupCalves(g.id),checks=calves.flatMap(outstanding).filter(due).length;
   const type=groupType(g);
@@ -228,6 +229,29 @@ function fitOutlines(zones,page,[left,top,width,height]){
  const y0=top+(height-spanY*scale)/2;
  return zones.map(z=>z.shape?{...z,shape:z.shape.map(([x,y])=>[x0+(x-minX)*aspect*scale,y0+(y-minY)*scale])}:z);
 }
+
+function median(nums){const a=nums.slice().sort((x,y)=>x-y),i=Math.floor(a.length/2);return a.length%2?a[i]:(a[i-1]+a[i])/2}
+function alignedShedShapes(pens){
+ const boxes=pens.map(p=>{const xs=p.shape.map(v=>v[0]),ys=p.shape.map(v=>v[1]);return {id:p.id,l:Math.min(...xs),r:Math.max(...xs),t:Math.min(...ys),b:Math.max(...ys)}});
+ const rows=[];
+ for(const p of boxes.slice().sort((a,b)=>(a.t+a.b)-(b.t+b.b))){
+  const y=(p.t+p.b)/2,h=p.b-p.t;
+  let row=rows.find(row=>Math.abs(y-median(row.map(q=>(q.t+q.b)/2)))<=Math.max(15,Math.min(h,median(row.map(q=>q.b-q.t)))*.38));
+  if(!row){row=[];rows.push(row)}row.push(p);
+ }
+ for(const row of rows)if(row.length>1){const top=median(row.map(p=>p.t)),bottom=median(row.map(p=>p.b));for(const p of row){p.t=top;p.b=bottom}}
+ const edges=boxes.flatMap(p=>[{p,k:'l',v:p.l},{p,k:'r',v:p.r}]).sort((a,b)=>a.v-b.v),clusters=[];
+ for(const e of edges){let cluster=clusters.find(c=>Math.abs(median(c.map(v=>v.v))-e.v)<=15);if(!cluster){cluster=[];clusters.push(cluster)}cluster.push(e)}
+ for(const c of clusters)if(c.length>1){const x=median(c.map(e=>e.v));for(const e of c)e.p[e.k]=x}
+ return boxes.filter(p=>p.r>p.l+3&&p.b>p.t+3).map(p=>({id:p.id,shape:[[p.l,p.t],[p.r,p.t],[p.r,p.b],[p.l,p.b]]}));
+}
+function renumberShedPens(d){
+ const pens=d.zones.filter(z=>z.kind==='Pen'&&(z.strawOrder!=null||/^Pen\s*\d+$/i.test(z.name)));
+ for(const z of pens)if(z.strawOrder==null)z.strawOrder=Number(z.name.match(/\d+/)[0]);
+ pens.sort((a,b)=>a.strawOrder-b.strawOrder);
+ let n=1;for(const z of pens)z.name=z.strawStorage?'Straw':'Pen '+n++;
+}
+
 function shedFrame(outlines,aspect){
  const points=outlines.flat();
  if(!points.length)return [0,0,1000,1000];
@@ -262,10 +286,10 @@ function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const paddockDrop=calfPaddock?'<div class="shed-north-area"><div class="north-caption">NORTH · OUTSIDE SHED</div><section class="calf-paddock-drop zone" data-zone="'+esc(calfPaddock.id)+'" data-kind="Paddock" aria-label="Calf Paddock · drop group here"><strong>Calf Paddock</strong><small>Drop groups here</small>'+groupButtons(calfPaddock)+'</section></div>':'';
  const deadBucket=shed&&!editing&&!draft?'<div class="dead-bucket-row"><section class="dead-bucket" id="dead-calf-bucket" aria-label="Deceased calf bucket"><span aria-hidden="true">🪣</span><strong>Dead calves</strong><small>Drop individual calf here</small></section></div>':'';
   return toolbar+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+'">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
- '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'" points="'+pointsAttr(z.shape)+'"/>').join('')+
+ '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'"'+(z.strawStorage?' class="straw-zone"':'')+' points="'+pointsAttr(z.shape)+'"/>').join('')+
  (active?'<'+(draft.points.length>=3?'polygon':'polyline')+' class="draft" points="'+pointsAttr(draft.points)+'"/>':'')+'</svg>'+
  (overview?'<div class="label shed-link" style="'+position(labelPoint(shell))+'">'+(editing?'<button type="button" data-layout-move="shed">Move shed</button>':button('Shed','map-page','shed'))+'</div>':'')+
- visible.map(z=>'<div class="label" data-zone="'+esc(z.id)+'" style="'+position(framePoint(labelPoint(z.shape)))+'"><span class="zone-name">'+esc(z.name)+'</span>'+(!draft?groupButtons(z):'')+'</div>').join('')+
+ visible.map(z=>'<div class="label" data-zone="'+esc(z.id)+'" style="'+position(framePoint(labelPoint(z.shape)))+'"><span class="zone-name">'+esc(z.strawStorage?'STRAW':z.name)+'</span>'+(!draft?groupButtons(z):'')+'</div>').join('')+
  (overview&&editing?[...visible,{id:'shed',shape:shell}].filter(z=>z.shape).map(z=>layoutHandles(z)).join(''):'')+
  (active?draft.points.map((p,i)=>'<button type="button" class="vertex" data-action="vertex" data-id="'+i+'" aria-label="Move corner '+(i+1)+'" aria-pressed="'+(draft.vertex===i)+'" style="'+position(p)+'">'+'</button>').join(''):'')+'</div>';
 }
@@ -308,12 +332,13 @@ function recordDeceased(calfId,existing=false){
   return commit(d=>{const c=by(d.calves,calfId);const wasActive=!c.deathDate&&!c.weaned;c.deathDate=v.deathDate;c.deathCause=v.deathCause;if(wasActive){const g=by(d.groups,c.group);if(g&&g.headcount!=null&&g.headcount>0)g.headcount--;}},'Deceased calf '+calf.tag+' recorded.');
  },existing?'Save changes':'Confirm deceased calf');
 }
-function penCalfPicker(zoneId){
+function penCalfPicker(zoneId,keepMultiple=false){
  const zone=by(data.zones,zoneId);
- if(!zone||zone.kind!=='Pen'||editing)return;
+ if(!zone||zone.kind!=='Pen'||zone.strawStorage||editing)return;
+ if(!keepMultiple)penMultiAdd=false;
  const body='<p>Search for an existing calf by ear tag. Selecting it adds the calf to the existing pen group in '+esc(zone.name)+'.</p>'+
   field('Calf number', '<input id="pen-calf-search" class="search" type="search" inputmode="numeric" autocomplete="off" placeholder="Enter calf ear tag" aria-label="Search calf number">')+
-  '<div id="pen-calf-results" aria-live="polite"></div>';
+  '<label class="multi-pen-option"><input id="pen-multiple" type="checkbox"'+(penMultiAdd?' checked':'')+'> Add multiple calves</label>'+ '<div id="pen-calf-results" aria-live="polite"></div>';
  show('Add calf to '+zone.name,body);
  const inputEl=$('pen-calf-search');
  const renderMatches=()=>{
@@ -325,15 +350,16 @@ function penCalfPicker(zoneId){
     return '<div class="card row"><span><strong>Tag '+esc(c.tag)+'</strong><small> · '+esc(location?.name??'Ungrouped')+'</small></span>'+button('Add to pen','pen-assign-calf',zoneId+'|'+c.id)+'</div>';
    }).join(''):'<p class="hint">No matching active calf found.</p>';
  };
+ $('pen-multiple').addEventListener('change',e=>{penMultiAdd=e.target.checked});
  inputEl.addEventListener('input',renderMatches);
  renderMatches();
  inputEl.focus();
 }
 function assignExistingCalfToPen(zoneId,calfId){
  const zone=by(data.zones,zoneId),calf=by(data.calves,calfId);
- if(!zone||zone.kind!=='Pen'||!calf||calf.weaned||calf.deathDate){say('That active calf or pen is no longer available.');return}
+ if(!zone||zone.kind!=='Pen'||zone.strawStorage||!calf||calf.weaned||calf.deathDate){say('That active calf or pen is no longer available.');return}
  const original=by(data.groups,calf.group);
- if(original?.zone===zoneId){$('dialog').close();say('Calf '+calf.tag+' is already in '+zone.name+'.');return}
+ if(original?.zone===zoneId){if(penMultiAdd)penCalfPicker(zoneId,true);else $('dialog').close();say('Calf '+calf.tag+' is already in '+zone.name+'.');return}
  const groupsInPen=data.groups.filter(g=>g.zone===zoneId);
  const target=groupsInPen.find(g=>g.autoPenGroup)||groupsInPen[0];
  const newGroupId=target?.id??id();
@@ -344,15 +370,15 @@ function assignExistingCalfToPen(zoneId,calfId){
   c.group=newGroupId;
   d.moves.push({group:groupName,from:original?by(data.zones,original.zone)?.name??'Unknown':'Ungrouped',to:zone.name,count:1,at:new Date().toISOString()});
  },'Calf '+calf.tag+' added to '+zone.name+' · '+groupName+'.');
- if(saved)$('dialog').close();
+ if(saved){if(penMultiAdd)penCalfPicker(zoneId,true);else $('dialog').close();}
 }
 function cancelPenHold(){if(penHoldTimer!==null)clearTimeout(penHoldTimer);penHoldTimer=null;penHoldStart=null}
 document.addEventListener('pointerdown',e=>{
  if(tab!=='Map'||mapPage!=='shed'||editing||draft||!e.isPrimary||e.button!==0)return;
- if(e.target.closest('[data-group],button,[data-layout-resize],[data-layout-move]'))return;
+ if(e.target.closest('button:not(.group),[data-layout-resize],[data-layout-move]'))return;
  const target=e.target.closest('[data-zone]');
  const zone=target&&by(data.zones,target.dataset.zone);
- if(!zone||zone.kind!=='Pen')return;
+ if(!zone||zone.kind!=='Pen'||zone.strawStorage)return;
  cancelPenHold();
  penHoldTriggered=false;
  penHoldStart={pointer:e.pointerId,x:e.clientX,y:e.clientY,zoneId:zone.id};
@@ -361,6 +387,7 @@ document.addEventListener('pointerdown',e=>{
   cancelPenHold();
   if(!targetZone)return;
   penHoldTriggered=true;
+  drag=null;
   penCalfPicker(targetZone);
  },550);
 });
@@ -370,7 +397,7 @@ document.addEventListener('pointermove',e=>{
 for(const eventName of ['pointerup','pointercancel','scroll'])document.addEventListener(eventName,cancelPenHold,true);
 document.addEventListener('contextmenu',e=>{
  const z=e.target.closest('[data-zone]');
- if(tab==='Map'&&mapPage==='shed'&&!editing&&z&&by(data.zones,z.dataset.zone)?.kind==='Pen'){
+ if(tab==='Map'&&mapPage==='shed'&&!editing&&z&&by(data.zones,z.dataset.zone)?.kind==='Pen'&&!by(data.zones,z.dataset.zone)?.strawStorage){
   e.preventDefault();
   if(!penHoldTriggered){cancelPenHold();penCalfPicker(z.dataset.zone)}
  }
@@ -447,6 +474,28 @@ document.addEventListener('click',e=>{
  if(a==='tab'){cancelPenHold();draft=null;shedPlacement=null;tab=k;render();return}
  if(a==='close'){$('dialog').close();return}
  if(a==='layout'){draft=null;shedPlacement=null;editing=!editing;render();return}
+
+ if(a==='align-shed-pens'){
+  const pens=data.zones.filter(z=>z.kind==='Pen'&&mapFor(z)==='shed'&&Array.isArray(z.shape)&&z.shape.length>=3);
+  if(!pens.length){say('No shed pen outlines to align.');return}
+  const aligned=alignedShedShapes(pens);
+  show('Align shed pen rows?','<p>Align neighbouring pen tops, bottoms and nearby walls without changing calf assignments. You can undo this.</p>',()=>commit(d=>{
+   d.shedPenShapesBeforeSquare=pens.map(z=>({id:z.id,shape:structuredClone(z.shape)}));
+   for(const item of aligned){const z=by(d.zones,item.id);if(z)z.shape=item.shape}
+  },'Shed pen rows aligned.'),'Align pens');
+  return;
+ }
+ if(a==='toggle-straw'){
+  const z=by(data.zones,k);if(!z||z.kind!=='Pen')return;
+  if(!z.strawStorage&&data.groups.some(g=>g.zone===k)){show('Move calves first','<p>Move any groups out of this pen before converting it to straw. This protects existing calf locations.</p>');return}
+  const toStraw=!z.strawStorage;
+  show(toStraw?'Change pen to straw?':'Restore numbered pen?','<p>'+esc(toStraw?'This area turns yellow, displays STRAW and later pen numbers decrease by one.':'This area becomes a pen again and pen numbers adjust.')+'</p>',()=>commit(d=>{
+   const pens=d.zones.filter(p=>p.kind==='Pen'&&(p.strawOrder!=null||/^Pen\s*\d+$/i.test(p.name)));
+   for(const p of pens)if(p.strawOrder==null)p.strawOrder=Number(p.name.match(/\d+/)[0]);
+   by(d.zones,k).strawStorage=toStraw;renumberShedPens(d);
+  },toStraw?'Area changed to straw.':'Straw area restored to a pen.'),toStraw?'Change to straw':'Restore pen');
+  return;
+ }
  if(a==='square-shed-pens'){
   const pens=data.zones.filter(z=>z.kind==='Pen'&&mapFor(z)==='shed'&&Array.isArray(z.shape)&&z.shape.length>=3);
   if(!pens.length){say('No drawn shed pens to straighten.');return}
