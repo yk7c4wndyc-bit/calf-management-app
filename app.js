@@ -82,11 +82,11 @@ function render(){
   const section=mapPage==='shed'?'shed':home;
   const farmAreas=[['overview','Overview'],['farm','Main paddocks map'],...farmZones.filter(z=>z.separateImage).map(z=>[mapFor(z),z.name])];
   const locationRows=mapPage==='farm'?data.zones.filter(z=>z.kind!=='Pen'):zones;
-  const image=data.images?.[mapPage];
+  const image=mapPage==='shed'?null:data.images?.[mapPage];
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):''):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Square up pens','square-shed-pens')+(data.shedPenShapesBeforeSquare?button('Undo squaring','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
    (overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
@@ -447,6 +447,31 @@ document.addEventListener('click',e=>{
  if(a==='tab'){cancelPenHold();draft=null;shedPlacement=null;tab=k;render();return}
  if(a==='close'){$('dialog').close();return}
  if(a==='layout'){draft=null;shedPlacement=null;editing=!editing;render();return}
+ if(a==='square-shed-pens'){
+  const pens=data.zones.filter(z=>z.kind==='Pen'&&mapFor(z)==='shed'&&Array.isArray(z.shape)&&z.shape.length>=3);
+  if(!pens.length){say('No drawn shed pens to straighten.');return}
+  show('Square up shed pens?','<p>Make every drawn shed pen rectangular, with horizontal and vertical sides. Pen names, calves and groups are kept. You can undo this adjustment.</p>',()=>commit(d=>{
+    d.shedPenShapesBeforeSquare=pens.map(z=>({id:z.id,shape:structuredClone(z.shape)}));
+    pens.forEach(p=>{
+      const xs=p.shape.map(v=>v[0]),ys=p.shape.map(v=>v[1]);
+      const left=Math.min(...xs),right=Math.max(...xs),top=Math.min(...ys),bottom=Math.max(...ys);
+      const target=by(d.zones,p.id);
+      if(target)target.shape=[[left,top],[right,top],[right,bottom],[left,bottom]];
+    });
+  },'Shed pen outlines squared up.'),'Square up pens');
+  return;
+ }
+ if(a==='undo-square-shed-pens'){
+  if(!data.shedPenShapesBeforeSquare)return;
+  commit(d=>{
+    for(const original of d.shedPenShapesBeforeSquare){
+      const pen=by(d.zones,original.id);
+      if(pen)pen.shape=original.shape;
+    }
+    delete d.shedPenShapesBeforeSquare;
+  },'Previous shed pen outlines restored.');
+  return;
+ }
  if(a==='save-shed-position'){
   if(!shedPlacement){say('Drag the shed to a new position first.');return}
   const offset=shedPlacement;shedPlacement=null;
