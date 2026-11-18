@@ -566,7 +566,7 @@ document.addEventListener('click',e=>{
   show('Select pen cluster','<p>Select all the pens in one block, without selecting pens on the other side of the alleyway.</p><div class="shed-pen-choices">'+pens.map(z=>'<label><input type="checkbox" class="cluster-choice" value="'+esc(z.id)+'"> '+esc(z.name)+'</label>').join('')+'</div>',()=>{
    const chosen=[...$('dialog').querySelectorAll('.cluster-choice:checked')].map(el=>el.value);
    if(chosen.length<2)return error('Select two or more pens in the cluster.');
-   draft=null;penMoveId=null;clusterMoveIds=chosen;render();$('board')?.scrollIntoView({block:'nearest'});
+   draft=null;penMoveId=null;clusterMoveIds=chosen;render();$('board')?.scrollIntoView({block:'nearest'});return true;
   },'Move selected pens');return;
  }
  if(a==='cancel-move-cluster'){clusterMoveIds=[];clusterMoveDrag=null;render();return}
