@@ -3,7 +3,7 @@
 const originalCalfIcon=calfIcon,originalGroupButtons=groupButtons,originalPenCalfPicker=penCalfPicker;
 calfIcon=function(type){
  if(type!=='Mixed')return originalCalfIcon(type);
- return '<svg class="calf-icon" viewBox="0 0 32 24" aria-hidden="true"><path fill="#171c19" d="M6 9 4 6 2 7l3 5 1 5 2 1v5h3l1-5h7l1 5h3l1-7 4-1 3-3-1-4-3-1-1-3-3 2-2 3H6z"/><path fill="#fff" d="M6 9 4 6 2 7l3 5 1 5 2 1v5h3l1-5h5V8h-5z"/><circle cx="27" cy="10" r=".85" fill="#fff"/></svg>';
+ return '<svg class="calf-icon" viewBox="0 0 32 24" aria-hidden="true"><path fill="#171c19" d="M6 9 4 6 2 7l3 5 1 5 2 1v5h3l1-5h7l1 5h3l1-7 4-1 3-3-1-4-3-1-1-3-3 2-2 3H6z"/><path fill="#fff" d="M17 8h5l1-3 3-2 1 3 3 1 1 4-3 3-4 1-1 7h-3l-1-5h-2z"/><circle cx="27" cy="10" r=".85" fill="#fff"/></svg>';
 };
 groupButtons=function(z){
  if(tab!=='Map'||mapPage!=='shed'||editing)return originalGroupButtons(z);
@@ -87,3 +87,6 @@ for(const eventName of ['pointerup','pointercancel'])document.addEventListener(e
   next.moves.push({group:groupName,from:by(next.zones,from?.zone)?.name??'Ungrouped',to:target.name,count:1,at:new Date().toISOString()});
  },'Calf '+calf.tag+' moved to '+target.name+'.');
 },true);
+
+// Refresh the initial map after installing the shed controls.
+render();
