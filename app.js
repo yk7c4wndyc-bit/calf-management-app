@@ -35,7 +35,10 @@ function cleanShedLocations(records){
  });
 }
 function farmHome(){return data.shedOutline||data.zones.some(z=>z.separateImage)?'overview':'farm'}
-const shedFootprint=()=>({id:'shed-footprint',name:'Shed',shape:data.shedOutline});
+const shedFootprint=()=>({
+ id:'shed-footprint',name:'Shed',
+ shape:mapPage==='overview'&&data.shedHeightScale===2?data.shedOutline?.map(([x,y])=>[x,y*2]):data.shedOutline
+});
 function say(message){$('status').textContent=message}
 function commit(change,message){
  const next=structuredClone(data);
@@ -270,6 +273,8 @@ function shedFrame(outlines,aspect){
 function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const footprint=shedFootprint();
  const shed=mapPage==='shed';
+ const heightScale=shed?(data.shedHeightScale??1):1;
+ aspect/=heightScale;
  const overview=mapPage==='overview';
  const active=draft&&(shed&&draft.id===footprint.id?footprint:by(zones,draft.id));
  const shedMarker=overview&&fitOutlines([footprint],'shed',[760,45,190,140])[0];
@@ -284,8 +289,9 @@ function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const [x,y,width,height]=focused?shedFrame([shell??[],...visible.map(z=>z.shape)],aspect):[0,0,1000,1000];
  const frameAspect=aspect*width/height;
  const framePoint=([px,py])=>[(px-x)*1000/width,(py-y)*1000/height];
- const [columns,rows]=shedGridSizes[shedGridSize];
- const gridControl=shed&&editing?'<div class="actions">'+field('Grid spacing', '<select id="shed-grid-size">'+Object.keys(shedGridSizes).map(size=>option(size,size,shedGridSize)).join('')+'</select>')+'</div>':'';
+ const [columns,baseRows]=shedGridSizes[shedGridSize];
+ const rows=baseRows*heightScale;
+ const gridControl=shed&&editing?'<div class="actions">'+field('Grid spacing', '<select id="shed-grid-size">'+Object.keys(shedGridSizes).map(size=>option(size,size,shedGridSize)).join('')+'</select>')+(!draft&&heightScale===1?button('Extend grid down','extend-shed-grid'):'')+'</div>':'';
  const imageStyle=focused?' style="left:'+(-100*x/width)+'%;top:'+(-100*y/height)+'%;width:'+(100000/width)+'%;height:'+(100000/height)+'%"':'';
  const toolbar=clusterMoveIds.length&&!active?'<p class="hint"><strong>Move cluster:</strong> drag any highlighted pen to move the whole selected cluster. The spacing, shapes and calf records are preserved.</p>':penMoveId&&!active?'<p class="hint"><strong>Move pen:</strong> touch and drag the highlighted pen outline to its correct position. Its shape and calves will stay unchanged. Tap Cancel moving pen to stop.</p>':active?'<p class="hint"><strong>'+esc(active.name)+'</strong> · '+(draft.vertex==null?'Tap the map to add corners, or tap a corner to move or remove it.':'Tap the new position for corner '+(draft.vertex+1)+'.')+'</p><div class="actions">'+button('Save outline','save-outline','',true)+button('Undo last corner','undo-point')+(draft.vertex==null?'':button('Remove selected corner','remove-point'))+button('Redraw','redraw')+button('Cancel','cancel-outline')+'</div>':'';
  const calfPaddock=shed&&!editing&&!draft?data.zones.find(z=>z.kind==='Paddock'&&z.name.trim().toLowerCase()==='calf paddock'):null;
@@ -386,7 +392,7 @@ function recordPoint(e,board){
  const r=board.getBoundingClientRect();
  const point=[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height].map((value,axis)=>{
   const fraction=Math.min(1,Math.max(0,value));
-  const steps=mapPage==='shed'?shedGridSizes[shedGridSize][axis]:1000;
+  const steps=mapPage==='shed'?shedGridSizes[shedGridSize][axis]*(axis===1?(data.shedHeightScale??1):1):1000;
   return Math.round(fraction*steps)*1000/steps;
  });
  if(draft.vertex==null){
@@ -470,6 +476,17 @@ function assignExistingCalfToPen(zoneId,calfId){
   d.moves.push({group:groupName,from:original?by(data.zones,original.zone)?.name??'Unknown':'Ungrouped',to:zone.name,count:1,at:new Date().toISOString()});
  },'Calf '+calf.tag+' added to '+zone.name+' · '+groupName+'.');
  if(saved){if(penMultiAdd)penCalfPicker(zoneId,true);else $('dialog').close();}
+}
+function extendShedGrid(records){
+ const halveHeight=shape=>shape.map(([x,y])=>[x,y/2]);
+ for(const zone of records.zones){
+  if(mapFor(zone)==='shed'&&zone.shape)zone.shape=halveHeight(zone.shape);
+ }
+ if(records.shedOutline)records.shedOutline=halveHeight(records.shedOutline);
+ for(const entry of [records.shedPenMoveBefore,...(records.shedClusterMoveBefore??[]),...(records.shedPenShapesBeforeSquare??[])]){
+  if(entry?.shape)entry.shape=halveHeight(entry.shape);
+ }
+ records.shedHeightScale=2;
 }
 function resetShedLayout(records){
  const shedIds=new Set(records.zones.filter(zone=>mapFor(zone)==='shed').map(zone=>zone.id));
@@ -598,6 +615,11 @@ document.addEventListener('click',e=>{
  const a=b.dataset.action,k=b.dataset.id;
  if(a==='tab'){cancelPenHold();clusterMoveIds=[];clusterMoveDrag=null;penMoveId=null;penMoveDrag=null;draft=null;shedPlacement=null;tab=k;render();return}
  if(a==='close'){$('dialog').close();return}
+ if(a==='extend-shed-grid'){
+  if(!editing||mapPage!=='shed'||draft||data.shedHeightScale===2)return;
+  penMoveId=null;penMoveDrag=null;clusterMoveIds=[];clusterMoveDrag=null;
+  commit(extendShedGrid,'Shed grid extended down.');return;
+ }
  if(a==='reset-shed'){resetShedForm();return}
  if(a==='layout'){draft=null;clusterMoveIds=[];clusterMoveDrag=null;penMoveId=null;penMoveDrag=null;shedPlacement=null;editing=!editing;render();return}
 
@@ -879,6 +901,7 @@ function validBackup(x){
  const unique=rows=>Array.isArray(rows)&&rows.every(r=>r&&typeof r.id==='string'&&r.id.length)&&new Set(rows.map(r=>r.id)).size===rows.length;
  const strings=(r,keys)=>keys.every(k=>typeof r[k]==='string');
  return x?.version===1
+  &&(x.shedHeightScale===undefined||x.shedHeightScale===2)
   &&(x.layout===undefined||(x.layout&&typeof x.layout==='object'&&!Array.isArray(x.layout)&&Object.values(x.layout).every(validOutline)))
   &&(x.shedPosition===undefined||(Array.isArray(x.shedPosition)&&x.shedPosition.length===2&&x.shedPosition.every(n=>Number.isFinite(n)&&Math.abs(n)<=1000)))&&(x.shedOutline===undefined||validOutline(x.shedOutline))&&unique(x.zones)&&x.zones.every(z=>strings(z,['name'])&&['Yard','Pen','Paddock'].includes(z.kind)&&(z.separateImage===undefined||(z.separateImage===true&&z.kind!=='Pen'))&&(z.mapArea===undefined||(!z.separateImage&&z.kind!=='Pen'&&x.zones.some(owner=>owner.separateImage&&z.mapArea===mapFor(owner))))&&(z.shape===undefined||validOutline(z.shape)))
   &&(x.images===undefined||(x.images&&typeof x.images==='object'&&!Array.isArray(x.images)&&Object.entries(x.images).every(([k,v])=>(['farm','shed'].includes(k)||x.zones.some(z=>mapFor(z)===k))&&validImage(v))))
@@ -893,7 +916,7 @@ $('restore').onchange=async e=>{
  try{
   const next=JSON.parse(await file.text());if(!validBackup(next))throw Error();
   show('Restore backup','<p>This will replace the current records with '+next.calves.length+' calf records and '+next.groups.length+' groups from the selected file.</p>',()=>{
-   if(!commit(d=>{delete d.images;delete d.shedOutline;delete d.shedPosition;delete d.layout;delete d.shedReset;Object.assign(d,next)},'Backup restored.'))return false;
+   if(!commit(d=>{delete d.images;delete d.shedOutline;delete d.shedPosition;delete d.layout;delete d.shedReset;delete d.shedHeightScale;Object.assign(d,next)},'Backup restored.'))return false;
    draft=null;mapPage=farmHome();editing=false;return true;
   });
  }catch{say('That file is not a valid Calf Paddock backup.')}
@@ -1114,6 +1137,13 @@ function recoveryCandidates(){
  const sources=[];
  try{const raw=localStorage.getItem(key+'-before-register-2026');const saved=raw&&JSON.parse(raw);if(validBackup(saved)&&hasFarmLayout(saved))sources.push({label:'the backup from before the calf import',records:saved});}catch{}
  if(validBackup(savedFarmRecovery))sources.push({label:'the saved 9 November farm backup',records:savedFarmRecovery});
+ if(data.shedHeightScale===2){
+  for(const source of sources){
+   if(source.records.shedHeightScale===2)continue;
+   source.records=structuredClone(source.records);
+   extendShedGrid(source.records);
+  }
+ }
  return sources;
 }
 function recoverMissingFarm(){
