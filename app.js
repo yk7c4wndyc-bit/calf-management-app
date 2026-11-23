@@ -1,6 +1,8 @@
 
 'use strict';
 const key='calf-paddock-v1';
+const shedBackupKey=key+'-before-shed-reset';
+const shedGrid=[24,15];
 const defaults={version:1,zones:[
  {id:'yard',name:'Arrival yard',kind:'Yard'},{id:'pen1',name:'Pen 1',kind:'Pen'},{id:'pen2',name:'Pen 2',kind:'Pen'},
  {id:'north',name:'North paddock',kind:'Paddock'},{id:'south',name:'South paddock',kind:'Paddock'},{id:'sick',name:'Sick pen',kind:'Pen'}
@@ -87,9 +89,9 @@ function render(){
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button('Add location','zone')+(mapPage==='shed'?button('Align selected pens','align-selected-shed-pens')+(button('Move pen cluster','move-pen-cluster'))+(clusterMoveIds.length?button('Cancel moving cluster','cancel-move-cluster'):'')+(data.shedClusterMoveBefore?button('Undo last cluster move','undo-cluster-move'):'')+(penMoveId?button('Cancel moving pen','cancel-move-pen'):'')+(data.shedPenMoveBefore?button('Undo last pen move','undo-move-pen'):'')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':mapPage==='shed'?'Add a pen, then tap grid intersections to draw its corners.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button(mapPage==='shed'?'Add pen':'Add location','zone')+(mapPage==='shed'?(zones.length||data.shedOutline||data.images?.shed?button('Reset shed layout','reset-shed'):'')+button('Align selected pens','align-selected-shed-pens')+(button('Move pen cluster','move-pen-cluster'))+(clusterMoveIds.length?button('Cancel moving cluster','cancel-move-cluster'):'')+(data.shedClusterMoveBefore?button('Undo last cluster move','undo-cluster-move'):'')+(penMoveId?button('Cancel moving pen','cancel-move-pen'):'')+(data.shedPenMoveBefore?button('Undo last pen move','undo-move-pen'):'')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
-   (overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
+   (section==='shed'||overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
     (mapPage==='shed'?'<div class="card row"><strong>Shed footprint</strong>'+button(data.shedOutline?'Edit shed outline':'Draw shed outline','outline','shed-footprint')+'</div>':'')+
     locationRows.map(z=>'<div class="card row"><strong>'+esc(z.name)+'</strong><div>'+
@@ -104,7 +106,7 @@ function render(){
   const groupTasks=vaccinations.map(g=>'<article class="card"><div class="row"><strong>'+esc(groupType(g)+' Group '+groupNumber(g)+' · '+g.name)+'</strong>'+button('Open group','open-group',g.id)+'</div><p class="'+(vaccinationDue(g)?'alert':'')+'">'+esc(vaccinationStatus(g)+' · '+vaccinationLabel(g))+'</p></article>').join('');
   view.innerHTML='<h2>Health follow-ups</h2><p class="hint">Due and upcoming calf checks and group vaccinations.</p>'+(groupTasks+tasks.map(({c,h})=>'<article class="card"><div class="row"><strong>Tag '+esc(c.tag)+'</strong>'+button('Open calf','open-calf',c.id)+'</div><p class="'+(due(h)?'alert':'')+'">'+(due(h)?'Due · ':'Scheduled · ')+esc(h.follow)+'</p><p>'+esc(h.note)+'</p>'+button('Mark checked','checked',c.id+'|'+h.id)+'</article>').join('')||'<p class="hint">No open follow-ups.</p>');
  }else{
-  view.innerHTML='<h2>Records and backup</h2><p class="hint">Records live in this browser. Export a backup to keep a copy or transfer to another device.</p><div class="actions">'+button('Export backup','export','',true)+button('Restore backup','restore')+button('Recover paddocks and groups','recover-farm')+'</div>'+farmRecoverySummary()+registerSummary()+'<h2>Deceased calves ('+data.calves.filter(c=>c.deathDate).length+')</h2>'+(data.calves.filter(c=>c.deathDate).sort((a,b)=>b.deathDate.localeCompare(a.deathDate)).map(c=>'<article class="card row"><div><strong>Tag '+esc(c.tag)+'</strong><p>'+esc(c.deathDate+' · '+(c.deathCause||'Cause not recorded'))+'</p></div>'+button('Edit record','edit-death',c.id)+'</article>').join('')||'<p class="hint">No deceased calves recorded.</p>')+'<h2>Group moves</h2>'+(data.moves.map((move,index)=>({move,index})).reverse().map(({move:m,index})=>'<article class="card"><strong>'+esc(m.group)+'</strong><p>'+esc(m.from)+' → '+esc(m.to)+' · '+m.count+' calves</p><small>'+esc(new Date(m.at).toLocaleString('en-AU'))+'</small><div class="actions">'+button('Delete move','delete-move',index)+'</div></article>').join('')||'<p class="hint">No group moves recorded.</p>');
+  view.innerHTML='<h2>Records and backup</h2><p class="hint">Records live in this browser. Export a backup to keep a copy or transfer to another device.</p><div class="actions">'+button('Export backup','export','',true)+button('Restore backup','restore')+(localStorage.getItem(shedBackupKey)?button('Export pre-reset shed backup','export-shed-backup'):'')+button('Recover paddocks and groups','recover-farm')+'</div>'+farmRecoverySummary()+registerSummary()+'<h2>Deceased calves ('+data.calves.filter(c=>c.deathDate).length+')</h2>'+(data.calves.filter(c=>c.deathDate).sort((a,b)=>b.deathDate.localeCompare(a.deathDate)).map(c=>'<article class="card row"><div><strong>Tag '+esc(c.tag)+'</strong><p>'+esc(c.deathDate+' · '+(c.deathCause||'Cause not recorded'))+'</p></div>'+button('Edit record','edit-death',c.id)+'</article>').join('')||'<p class="hint">No deceased calves recorded.</p>')+'<h2>Group moves</h2>'+(data.moves.map((move,index)=>({move,index})).reverse().map(({move:m,index})=>'<article class="card"><strong>'+esc(m.group)+'</strong><p>'+esc(m.from)+' → '+esc(m.to)+' · '+m.count+' calves</p><small>'+esc(new Date(m.at).toLocaleString('en-AU'))+'</small><div class="actions">'+button('Delete move','delete-move',index)+'</div></article>').join('')||'<p class="hint">No group moves recorded.</p>');
  }
 }
 function mapTabs(pages,active){
@@ -286,7 +288,7 @@ function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const calfPaddock=shed&&!editing&&!draft?data.zones.find(z=>z.kind==='Paddock'&&z.name.trim().toLowerCase()==='calf paddock'):null;
  const paddockDrop=calfPaddock?'<div class="shed-north-area"><div class="north-caption">NORTH · OUTSIDE SHED</div><section class="calf-paddock-drop zone" data-zone="'+esc(calfPaddock.id)+'" data-kind="Paddock" aria-label="Calf Paddock · drop group here"><strong>Calf Paddock</strong><small>Drop groups here</small>'+groupButtons(calfPaddock)+'</section></div>':'';
  const deadBucket=shed&&!editing&&!draft?'<div class="dead-bucket-row"><section class="dead-bucket" id="dead-calf-bucket" aria-label="Deceased calf bucket"><span aria-hidden="true">🪣</span><strong>Dead calves</strong><small>Drop individual calf here</small></section></div>':'';
-  return toolbar+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+'">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
+  return toolbar+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+(shed&&(editing||!visible.length)?' shed-grid':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+'">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
  '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'"'+(penMoveId===z.id||clusterMoveIds.includes(z.id)?' class="move-pen-target"':z.strawStorage?' class="straw-zone"':'')+' points="'+pointsAttr(z.shape)+'"/>').join('')+
  (active?'<'+(draft.points.length>=3?'polygon':'polyline')+' class="draft" points="'+pointsAttr(draft.points)+'"/>':'')+'</svg>'+
  (overview?'<div class="label shed-link" style="'+position(labelPoint(shell))+'">'+(editing?'<button type="button" data-layout-move="shed">Move shed</button>':button('Shed','map-page','shed'))+'</div>':'')+
@@ -379,7 +381,11 @@ document.addEventListener('pointerup',finishPenMove,true);
 document.addEventListener('pointercancel',finishPenMove,true);
 function recordPoint(e,board){
  const r=board.getBoundingClientRect();
- const point=[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height].map(n=>Math.round(Math.min(1,Math.max(0,n))*1000));
+ const point=[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height].map((value,axis)=>{
+  const fraction=Math.min(1,Math.max(0,value));
+  const steps=mapPage==='shed'?shedGrid[axis]:1000;
+  return Math.round(fraction*steps)*1000/steps;
+ });
  if(draft.vertex==null){
   if(draft.points.length>=100){say('This outline has reached 100 corners.');return}
   draft.points.push(point);
@@ -455,6 +461,32 @@ function assignExistingCalfToPen(zoneId,calfId){
   d.moves.push({group:groupName,from:original?by(data.zones,original.zone)?.name??'Unknown':'Ungrouped',to:zone.name,count:1,at:new Date().toISOString()});
  },'Calf '+calf.tag+' added to '+zone.name+' · '+groupName+'.');
  if(saved){if(penMultiAdd)penCalfPicker(zoneId,true);else $('dialog').close();}
+}
+function resetShedLayout(records){
+ const shedIds=new Set(records.zones.filter(zone=>mapFor(zone)==='shed').map(zone=>zone.id));
+ const shedGroups=new Set(records.groups.filter(group=>shedIds.has(group.zone)).map(group=>group.id));
+ records.zones=records.zones.filter(zone=>!shedIds.has(zone.id));
+ records.groups=records.groups.filter(group=>!shedGroups.has(group.id));
+ for(const calf of records.calves)if(shedGroups.has(calf.group))calf.group='';
+ if(records.images)delete records.images.shed;
+ if(records.layout){
+  delete records.layout.shed;
+  for(const zoneId of shedIds)delete records.layout[zoneId];
+ }
+ const range=records.lastCalfRangeAssignment;
+ if(range&&(range.assignments.some(row=>shedGroups.has(row.before)||shedGroups.has(row.after))||
+  range.counts.some(row=>shedGroups.has(row.id))))delete records.lastCalfRangeAssignment;
+ for(const prop of ['shedOutline','shedPosition','shedClusterMoveBefore','shedPenMoveBefore','shedPenShapesBeforeSquare'])delete records[prop];
+ records.shedReset=true;
+}
+function resetShedForm(){
+ if(storageLoadFailed){say('Restore your saved records before resetting the shed.');return}
+ show('Reset shed layout','<p>Remove all shed pens, the shed outline and its reference photo. Calves in shed groups return to Ungrouped in the register. Paddock and yard groups stay in place.</p><p>A pre-reset backup will be available in Records.</p>',()=>{
+  try{localStorage.setItem(shedBackupKey,JSON.stringify(data));}
+  catch{return error('Could not save the pre-reset backup. The shed layout is unchanged.');}
+  draft=null;clusterMoveIds=[];clusterMoveDrag=null;penMoveId=null;penMoveDrag=null;shedPlacement=null;
+  return commit(resetShedLayout,'Shed cleared. Choose Add pen to draw on the grid.');
+ },'Reset shed');
 }
 function cancelPenHold(){if(penHoldTimer!==null)clearTimeout(penHoldTimer);penHoldTimer=null;penHoldStart=null}
 document.addEventListener('pointerdown',e=>{
@@ -557,6 +589,7 @@ document.addEventListener('click',e=>{
  const a=b.dataset.action,k=b.dataset.id;
  if(a==='tab'){cancelPenHold();clusterMoveIds=[];clusterMoveDrag=null;penMoveId=null;penMoveDrag=null;draft=null;shedPlacement=null;tab=k;render();return}
  if(a==='close'){$('dialog').close();return}
+ if(a==='reset-shed'){resetShedForm();return}
  if(a==='layout'){draft=null;clusterMoveIds=[];clusterMoveDrag=null;penMoveId=null;penMoveDrag=null;shedPlacement=null;editing=!editing;render();return}
 
 
@@ -716,17 +749,22 @@ document.addEventListener('click',e=>{
  if(a==='pen-assign-calf'){const [zoneId,calfId]=k.split('|');assignExistingCalfToPen(zoneId,calfId);return}
  if(a==='zone'){
   const z=by(data.zones,k);
+  const addingPen=!z&&mapPage==='shed';
   const mapArea=z?.mapArea??(!z&&mapPage.startsWith('location:')?mapPage:undefined);
-  show(z?'Edit location':'Add location',field('Name',input('name',z?.name,'required maxlength="60"'))+field('Type',select('kind',(mapArea||z?.separateImage?['Paddock','Yard']:['Pen','Paddock','Yard']).map(v=>option(v,v,z?.kind??(mapPage==='shed'?'Pen':'Paddock'))).join(''))),v=>{
+  show(z?'Edit location':addingPen?'Add pen':'Add location',field('Name',input('name',z?.name,'required maxlength="60"'))+field('Type',select('kind',(addingPen?['Pen']:mapArea||z?.separateImage?['Paddock','Yard']:['Pen','Paddock','Yard']).map(v=>option(v,v,z?.kind??(mapPage==='shed'?'Pen':'Paddock'))).join(''))),v=>{
    v.name=v.name.trim();if(!v.name)return error('Enter a name.');
    if((mapArea||z?.separateImage)&&v.kind==='Pen')return error('Keep this location as a paddock or yard.');
    if(z?.shape && mapFor(z)!==mapFor({...z,...v}))return error('This location has an outline on its current map. Keep its current map type.');
-   return commit(d=>{if(z)Object.assign(by(d.zones,k),v);else d.zones.push({...v,id:id(),...(mapArea?{mapArea}:{})})},'Map updated.');
+   const zoneId=z?.id??id();
+   const saved=commit(d=>{if(z)Object.assign(by(d.zones,k),v);else d.zones.push({...v,id:zoneId,...(mapArea?{mapArea}:{})})},'Map updated.');
+   if(saved&&addingPen){draft={id:zoneId,points:[],vertex:null};render();$('board').scrollIntoView({block:'nearest'});}
+   return saved;
   });return;
  }
  if(a==='group'){
   show('Add group',field('Group name',input('name','','required maxlength="60"'))+typeField('Dairy')+field('Starting location',select('zone',data.zones.map(z=>option(z.id,z.name,data.zones.find(r=>mapFor(r)===mapPage)?.id)).join(''))),v=>{
    v.name=v.name.trim();if(!v.name)return error('Enter a group name.');
+   if(!by(data.zones,v.zone))return error('Add a location before creating a group.');
    return commit(d=>d.groups.push({...v,id:id()}),'Group added. Add calves from the Calves tab.');
   });return;
  }
@@ -766,9 +804,11 @@ document.addEventListener('click',e=>{
   const [cid,hid]=k.split('|');
   commit(d=>{by(by(d.calves,cid).health,hid).done=true},'Follow-up checked.');return;
  }
- if(a==='export'){
-  const backup=JSON.stringify(data,null,2);
-  const filename='calf-paddock-'+today()+'.json';
+ if(a==='export'||a==='export-shed-backup'){
+  const beforeReset=a==='export-shed-backup';
+  const backup=beforeReset?localStorage.getItem(shedBackupKey):JSON.stringify(data,null,2);
+  if(!backup)return;
+  const filename='calf-paddock-'+(beforeReset?'before-shed-reset-':'')+today()+'.json';
   const url=URL.createObjectURL(new Blob([backup],{type:'application/json'}));
   show('Export backup','<p><a id="backup-download">Download backup file</a></p><details><summary>Copy backup as text</summary><p>Select all the text and copy it into a plain-text file if the download fails.</p><textarea id="backup-text" aria-label="Backup JSON" readonly rows="6"></textarea></details>');
   const link=$('backup-download');
@@ -831,7 +871,7 @@ function validBackup(x){
  const strings=(r,keys)=>keys.every(k=>typeof r[k]==='string');
  return x?.version===1
   &&(x.layout===undefined||(x.layout&&typeof x.layout==='object'&&!Array.isArray(x.layout)&&Object.values(x.layout).every(validOutline)))
-  &&(x.shedPosition===undefined||(Array.isArray(x.shedPosition)&&x.shedPosition.length===2&&x.shedPosition.every(n=>Number.isFinite(n)&&Math.abs(n)<=1000)))&&(x.shedOutline===undefined||validOutline(x.shedOutline))&&unique(x.zones)&&x.zones.length&&x.zones.every(z=>strings(z,['name'])&&['Yard','Pen','Paddock'].includes(z.kind)&&(z.separateImage===undefined||(z.separateImage===true&&z.kind!=='Pen'))&&(z.mapArea===undefined||(!z.separateImage&&z.kind!=='Pen'&&x.zones.some(owner=>owner.separateImage&&z.mapArea===mapFor(owner))))&&(z.shape===undefined||validOutline(z.shape)))
+  &&(x.shedPosition===undefined||(Array.isArray(x.shedPosition)&&x.shedPosition.length===2&&x.shedPosition.every(n=>Number.isFinite(n)&&Math.abs(n)<=1000)))&&(x.shedOutline===undefined||validOutline(x.shedOutline))&&unique(x.zones)&&x.zones.every(z=>strings(z,['name'])&&['Yard','Pen','Paddock'].includes(z.kind)&&(z.separateImage===undefined||(z.separateImage===true&&z.kind!=='Pen'))&&(z.mapArea===undefined||(!z.separateImage&&z.kind!=='Pen'&&x.zones.some(owner=>owner.separateImage&&z.mapArea===mapFor(owner))))&&(z.shape===undefined||validOutline(z.shape)))
   &&(x.images===undefined||(x.images&&typeof x.images==='object'&&!Array.isArray(x.images)&&Object.entries(x.images).every(([k,v])=>(['farm','shed'].includes(k)||x.zones.some(z=>mapFor(z)===k))&&validImage(v))))
   &&unique(x.groups)&&x.groups.every(g=>strings(g,['name'])&&by(x.zones,g.zone)&&(g.type===undefined||groupTypes.includes(g.type))
    &&(g.headcount==null||(Number.isSafeInteger(g.headcount)&&g.headcount>=0))
@@ -844,7 +884,7 @@ $('restore').onchange=async e=>{
  try{
   const next=JSON.parse(await file.text());if(!validBackup(next))throw Error();
   show('Restore backup','<p>This will replace the current records with '+next.calves.length+' calf records and '+next.groups.length+' groups from the selected file.</p>',()=>{
-   if(!commit(d=>{delete d.images;delete d.shedOutline;delete d.shedPosition;delete d.layout;Object.assign(d,next)},'Backup restored.'))return false;
+   if(!commit(d=>{delete d.images;delete d.shedOutline;delete d.shedPosition;delete d.layout;delete d.shedReset;Object.assign(d,next)},'Backup restored.'))return false;
    draft=null;mapPage=farmHome();editing=false;return true;
   });
  }catch{say('That file is not a valid Calf Paddock backup.')}
@@ -1068,7 +1108,7 @@ function recoveryCandidates(){
  return sources;
 }
 function recoverMissingFarm(){
- if(storageLoadFailed||data.farmRecovery?.id==='farm-recovery-20261115')return;
+ if(storageLoadFailed||data.shedReset||data.farmRecovery?.id==='farm-recovery-20261115')return;
  const sources=recoveryCandidates();
  // Complete existing layouts are left alone. Recovery is automatic only when the farm view is missing.
  if(hasFarmLayout(data)&&data.groups.length)return;
