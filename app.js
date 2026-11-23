@@ -93,13 +93,12 @@ function render(){
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':mapPage==='shed'?'Add a pen, then tap grid intersections to draw its corners.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button(mapPage==='shed'?'Add pen':'Add location','zone')+(mapPage==='shed'?(zones.length||data.shedOutline||data.images?.shed?button('Reset shed layout','reset-shed'):'')+button('Align selected pens','align-selected-shed-pens')+(button('Move pen cluster','move-pen-cluster'))+(clusterMoveIds.length?button('Cancel moving cluster','cancel-move-cluster'):'')+(data.shedClusterMoveBefore?button('Undo last cluster move','undo-cluster-move'):'')+(penMoveId?button('Cancel moving pen','cancel-move-pen'):'')+(data.shedPenMoveBefore?button('Undo last pen move','undo-move-pen'):'')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':mapPage==='shed'?'Add a pen, then tap grid intersections to draw its corners.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button(mapPage==='shed'?'Add pen':'Add location','zone')+(mapPage==='shed'?button(data.shedOutline?'Edit shed outline':'Draw shed outline','outline','shed-footprint')+(zones.length||data.shedOutline||data.images?.shed?button('Reset shed layout','reset-shed'):'')+button('Align selected pens','align-selected-shed-pens')+(button('Move pen cluster','move-pen-cluster'))+(clusterMoveIds.length?button('Cancel moving cluster','cancel-move-cluster'):'')+(data.shedClusterMoveBefore?button('Undo last cluster move','undo-cluster-move'):'')+(penMoveId?button('Cancel moving pen','cancel-move-pen'):'')+(data.shedPenMoveBefore?button('Undo last pen move','undo-move-pen'):'')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
    (section==='shed'||overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
-    (mapPage==='shed'?'<div class="card row"><strong>Shed footprint</strong>'+button(data.shedOutline?'Edit shed outline':'Draw shed outline','outline','shed-footprint')+'</div>':'')+
     locationRows.map(z=>'<div class="card row"><strong>'+esc(z.name)+'</strong><div>'+
-    (mapFor(z)===mapPage?button('Edit details','zone',z.id)+(mapPage==='shed'&&z.kind==='Pen'&&(z.strawStorage||/^Pen\s*\d+$/i.test(z.name))?button(z.strawStorage?'Restore pen':'Change to straw','toggle-straw',z.id):'')+(mapPage==='shed'&&z.kind==='Pen'&&z.shape?button(penMoveId===z.id?'Moving — drag on map':'Move pen','move-shed-pen',z.id):'')+button(z.shape?'Edit outline':'Draw outline','outline',z.id)+(!draft&&mapPage==='farm'&&!z.shape?button('Add separate image','separate-image',z.id):''):button('Open map','map-page',mapFor(z)))+
+    (mapFor(z)===mapPage?button('Edit details','zone',z.id)+(mapPage==='shed'&&z.kind==='Pen'&&(z.strawStorage||numberedShedPen(z))?button(z.strawStorage?'Restore pen':'Change to straw','toggle-straw',z.id):'')+(mapPage==='shed'&&z.kind==='Pen'&&z.shape?button(penMoveId===z.id?'Moving — drag on map':'Move pen','move-shed-pen',z.id):'')+button(z.shape?'Edit outline':'Draw outline','outline',z.id)+(!draft&&mapPage==='farm'&&!z.shape?button('Add separate image','separate-image',z.id):''):button('Open map','map-page',mapFor(z)))+
     '</div></div>').join(''):'')+
    (unplaced.length?'<h3>'+ (zones.some(z=>z.shape)?'Locations without outlines':'Locations')+'</h3><div class="map">'+unplaced.map(z=>'<section class="zone" data-zone="'+esc(z.id)+'" data-kind="'+esc(z.kind)+'"><small>'+esc(z.kind)+'</small><h3>'+esc(z.name)+'</h3>'+groupButtons(z)+'</section>').join('')+'</div>':'');
  }else if(tab==='Calves'){
@@ -252,11 +251,15 @@ function alignedShedShapes(pens){
  for(const c of clusters)if(c.length>1){const x=median(c.map(e=>e.v));for(const e of c)e.p[e.k]=x}
  return boxes.filter(p=>p.r>p.l+3&&p.b>p.t+3).map(p=>({id:p.id,shape:[[p.l,p.t],[p.r,p.t],[p.r,p.b],[p.l,p.b]]}));
 }
-function renumberShedPens(d){
- const pens=d.zones.filter(z=>z.kind==='Pen'&&(z.strawOrder!=null||/^Pen\s*\d+$/i.test(z.name)));
- for(const z of pens)if(z.strawOrder==null)z.strawOrder=Number(z.name.match(/\d+/)[0]);
+function numberedShedPen(zone){
+ return zone.kind==='Pen'&&mapFor(zone)==='shed'&&(zone.strawOrder!=null||/^(?:Pen\s*)?\d+$/i.test(zone.name.trim()));
+}
+function renumberShedPens(records){
+ const pens=records.zones.filter(numberedShedPen);
+ for(const pen of pens)if(pen.strawOrder==null)pen.strawOrder=Number(pen.name.match(/\d+/)[0]);
  pens.sort((a,b)=>a.strawOrder-b.strawOrder);
- let n=1;for(const z of pens)z.name=z.strawStorage?'Straw':'Pen '+n++;
+ let number=1;
+ for(const pen of pens)pen.name=pen.strawStorage?'Straw':'Pen '+number++;
 }
 
 function shedFrame(outlines,aspect){
@@ -299,7 +302,7 @@ function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const deadBucket=shed&&!editing&&!draft?'<div class="dead-bucket-row"><section class="dead-bucket" id="dead-calf-bucket" aria-label="Deceased calf bucket"><span aria-hidden="true">🪣</span><strong>Dead calves</strong><small>Drop individual calf here</small></section></div>':'';
   return toolbar+gridControl+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+(shed&&(editing||!visible.length)?' shed-grid':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+';--grid-width:'+(100/columns)+'%;--grid-height:'+(100/rows)+'%">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
  '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'"'+(penMoveId===z.id||clusterMoveIds.includes(z.id)?' class="move-pen-target"':z.strawStorage?' class="straw-zone"':'')+' points="'+pointsAttr(z.shape)+'"/>').join('')+
- (active?'<'+(draft.points.length>=3?'polygon':'polyline')+' class="draft" points="'+pointsAttr(draft.points)+'"/>':'')+'</svg>'+
+ (active?'<'+(draft.points.length>=3?'polygon':'polyline')+' class="draft'+(active.id===footprint.id?' shed-outline-draft':'')+'" points="'+pointsAttr(draft.points)+'"/>':'')+'</svg>'+
  (overview?'<div class="label shed-link" style="'+position(labelPoint(shell))+'">'+(editing?'<button type="button" data-layout-move="shed">Move shed</button>':button('Shed','map-page','shed'))+'</div>':'')+
  visible.map(z=>'<div class="label" data-zone="'+esc(z.id)+'" style="'+position(framePoint(labelPoint(z.shape)))+'"><span class="zone-name">'+esc(z.strawStorage?'STRAW':z.name)+'</span>'+(!draft?groupButtons(z):'')+'</div>').join('')+
  (overview&&editing?[...visible,{id:'shed',shape:shell}].filter(z=>z.shape).map(z=>layoutHandles(z)).join(''):'')+
@@ -684,12 +687,10 @@ document.addEventListener('click',e=>{
   return;
  }
  if(a==='toggle-straw'){
-  const z=by(data.zones,k);if(!z||z.kind!=='Pen')return;
+  const z=by(data.zones,k);if(!z||(!z.strawStorage&&!numberedShedPen(z)))return;
   if(!z.strawStorage&&data.groups.some(g=>g.zone===k)){show('Move calves first','<p>Move any groups out of this pen before converting it to straw. This protects existing calf locations.</p>');return}
   const toStraw=!z.strawStorage;
   show(toStraw?'Change pen to straw?':'Restore numbered pen?','<p>'+esc(toStraw?'This area turns yellow, displays STRAW and later pen numbers decrease by one.':'This area becomes a pen again and pen numbers adjust.')+'</p>',()=>commit(d=>{
-   const pens=d.zones.filter(p=>p.kind==='Pen'&&(p.strawOrder!=null||/^Pen\s*\d+$/i.test(p.name)));
-   for(const p of pens)if(p.strawOrder==null)p.strawOrder=Number(p.name.match(/\d+/)[0]);
    by(d.zones,k).strawStorage=toStraw;renumberShedPens(d);
   },toStraw?'Area changed to straw.':'Straw area restored to a pen.'),toStraw?'Change to straw':'Restore pen');
   return;
