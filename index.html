@@ -26,10 +26,10 @@
 .shed-pen-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 10px;max-height:40vh;overflow:auto;padding:8px;background:#f1f4e9;border-radius:8px}.shed-pen-choices label{display:flex;align-items:center;gap:7px;margin:0;padding:6px 3px;font-size:.9rem}.shed-pen-choices input{width:20px;height:20px;margin:0;flex:none}
 #board[data-map="shed"] polygon.move-pen-target{fill:rgba(255,193,7,.32);stroke:#d58b00;stroke-width:5;cursor:grab;touch-action:none;pointer-events:all}
 #board[data-map="shed"] polygon.move-pen-target:active{cursor:grabbing}
-.pen-list-row{touch-action:none;user-select:none;cursor:grab}.pen-headcount{pointer-events:none}.board.shed-grid{background-color:#f4f7ee;background-image:linear-gradient(to right,#9caf96 1px,transparent 1px),linear-gradient(to bottom,#9caf96 1px,transparent 1px);background-size:calc(100% / 24) calc(100% / 15)}
+.pen-list-row{touch-action:none;user-select:none;cursor:grab}.pen-headcount{pointer-events:none}.board.shed-grid{background-color:#f4f7ee;background-image:linear-gradient(to right,#9caf96 1px,transparent 1px),linear-gradient(to bottom,#9caf96 1px,transparent 1px);background-size:var(--grid-width) var(--grid-height)}
 </style>
 <!-- Bump the visible version and the cache keys of changed assets on each release. -->
-<header><p>CALF SHED · FIELD RECORDS · v1.1.0</p><h1>Calf Paddock</h1></header>
+<header><p>CALF SHED · FIELD RECORDS · v1.2.0</p><h1>Calf Paddock</h1></header>
 <main>
 <nav id="nav" aria-label="App sections"></nav>
 <div id="status" role="status"></div>
@@ -42,6 +42,6 @@
 <script src="bulk-groups.js?v=20261115"></script>
 <script src="farm-recovery-data.js?v=20261115"></script>
 <script src="farm-recovery.js?v=20261115"></script>
-<script src="app.js?v=1.1.0"></script>
+<script src="app.js?v=1.2.0"></script>
 <script src="shed-enhancements.js?v=20261118b"></script>
 </html>

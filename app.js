@@ -2,7 +2,8 @@
 'use strict';
 const key='calf-paddock-v1';
 const shedBackupKey=key+'-before-shed-reset';
-const shedGrid=[24,15];
+const shedGridSizes={Coarse:[16,10],Medium:[24,15],Fine:[40,25],'Extra fine':[64,40]};
+let shedGridSize='Medium';
 const defaults={version:1,zones:[
  {id:'yard',name:'Arrival yard',kind:'Yard'},{id:'pen1',name:'Pen 1',kind:'Pen'},{id:'pen2',name:'Pen 2',kind:'Pen'},
  {id:'north',name:'North paddock',kind:'Paddock'},{id:'south',name:'South paddock',kind:'Paddock'},{id:'sick',name:'Sick pen',kind:'Pen'}
@@ -283,12 +284,14 @@ function drawBoard(zones,image,aspect=image?.ratio??1.6){
  const [x,y,width,height]=focused?shedFrame([shell??[],...visible.map(z=>z.shape)],aspect):[0,0,1000,1000];
  const frameAspect=aspect*width/height;
  const framePoint=([px,py])=>[(px-x)*1000/width,(py-y)*1000/height];
+ const [columns,rows]=shedGridSizes[shedGridSize];
+ const gridControl=shed&&editing?'<div class="actions">'+field('Grid spacing', '<select id="shed-grid-size">'+Object.keys(shedGridSizes).map(size=>option(size,size,shedGridSize)).join('')+'</select>')+'</div>':'';
  const imageStyle=focused?' style="left:'+(-100*x/width)+'%;top:'+(-100*y/height)+'%;width:'+(100000/width)+'%;height:'+(100000/height)+'%"':'';
  const toolbar=clusterMoveIds.length&&!active?'<p class="hint"><strong>Move cluster:</strong> drag any highlighted pen to move the whole selected cluster. The spacing, shapes and calf records are preserved.</p>':penMoveId&&!active?'<p class="hint"><strong>Move pen:</strong> touch and drag the highlighted pen outline to its correct position. Its shape and calves will stay unchanged. Tap Cancel moving pen to stop.</p>':active?'<p class="hint"><strong>'+esc(active.name)+'</strong> · '+(draft.vertex==null?'Tap the map to add corners, or tap a corner to move or remove it.':'Tap the new position for corner '+(draft.vertex+1)+'.')+'</p><div class="actions">'+button('Save outline','save-outline','',true)+button('Undo last corner','undo-point')+(draft.vertex==null?'':button('Remove selected corner','remove-point'))+button('Redraw','redraw')+button('Cancel','cancel-outline')+'</div>':'';
  const calfPaddock=shed&&!editing&&!draft?data.zones.find(z=>z.kind==='Paddock'&&z.name.trim().toLowerCase()==='calf paddock'):null;
  const paddockDrop=calfPaddock?'<div class="shed-north-area"><div class="north-caption">NORTH · OUTSIDE SHED</div><section class="calf-paddock-drop zone" data-zone="'+esc(calfPaddock.id)+'" data-kind="Paddock" aria-label="Calf Paddock · drop group here"><strong>Calf Paddock</strong><small>Drop groups here</small>'+groupButtons(calfPaddock)+'</section></div>':'';
  const deadBucket=shed&&!editing&&!draft?'<div class="dead-bucket-row"><section class="dead-bucket" id="dead-calf-bucket" aria-label="Deceased calf bucket"><span aria-hidden="true">🪣</span><strong>Dead calves</strong><small>Drop individual calf here</small></section></div>':'';
-  return toolbar+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+(shed&&(editing||!visible.length)?' shed-grid':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+'">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
+  return toolbar+gridControl+paddockDrop+deadBucket+'<div class="board'+(active?' drawing':'')+(focused?' focused-shed':'')+(shed&&(editing||!visible.length)?' shed-grid':'')+'" id="board" data-map="'+mapPage+'" style="--aspect:'+frameAspect+';--grid-width:'+(100/columns)+'%;--grid-height:'+(100/rows)+'%">'+(image?'<img alt="" src="'+esc(image.src)+'"'+imageStyle+'>':'')+
  '<svg viewBox="'+[x,y,width,height].join(' ')+'" preserveAspectRatio="none" aria-hidden="true">'+(shell?'<polygon class="shed-footprint"'+(overview?' id="overview-shed"':'')+' points="'+pointsAttr(shell)+'"/>':'')+visible.map(z=>'<polygon data-zone="'+esc(z.id)+'"'+(penMoveId===z.id||clusterMoveIds.includes(z.id)?' class="move-pen-target"':z.strawStorage?' class="straw-zone"':'')+' points="'+pointsAttr(z.shape)+'"/>').join('')+
  (active?'<'+(draft.points.length>=3?'polygon':'polyline')+' class="draft" points="'+pointsAttr(draft.points)+'"/>':'')+'</svg>'+
  (overview?'<div class="label shed-link" style="'+position(labelPoint(shell))+'">'+(editing?'<button type="button" data-layout-move="shed">Move shed</button>':button('Shed','map-page','shed'))+'</div>':'')+
@@ -383,7 +386,7 @@ function recordPoint(e,board){
  const r=board.getBoundingClientRect();
  const point=[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height].map((value,axis)=>{
   const fraction=Math.min(1,Math.max(0,value));
-  const steps=mapPage==='shed'?shedGrid[axis]:1000;
+  const steps=mapPage==='shed'?shedGridSizes[shedGridSize][axis]:1000;
   return Math.round(fraction*steps)*1000/steps;
  });
  if(draft.vertex==null){
@@ -392,6 +395,12 @@ function recordPoint(e,board){
  }else{draft.points[draft.vertex]=point;draft.vertex=null}
  render();
 }
+document.addEventListener('change',e=>{
+ if(e.target.id!=='shed-grid-size'||!Object.hasOwn(shedGridSizes,e.target.value))return;
+ shedGridSize=e.target.value;
+ render();
+ $('shed-grid-size').focus({preventScroll:true});
+});
 function renderCalves(){
  $('calf-list').innerHTML=data.calves.filter(c=>c.tag.toLowerCase().includes(query.trim().toLowerCase())).map(c=>'<div class="card row"><div><strong>Tag '+esc(c.tag)+'</strong><p>'+esc(c.deathDate?'Deceased '+c.deathDate:c.weaned?'Weaned '+c.weaned:by(data.groups,c.group)?.name??'Ungrouped')+'</p><p>'+esc((c.type==='Beef'?'Beef':c.type==='Dairy'?'Friesian heifer':'Calf')+' · Born '+(c.birth||'unknown')+(c.birthBasis&&c.birthBasis!=='Dated note'?' (estimated)':''))+'</p></div>'+button('Open calf','open-calf',c.id)+'</div>').join('')||'<p class="hint">No matching calf records.</p>';
 }
