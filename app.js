@@ -21,18 +21,7 @@ try {const saved=localStorage.getItem(key);if(saved)data=JSON.parse(saved)} catc
 cleanShedLocations(data);
 mapPage=farmHome();
 function cleanShedLocations(records){
- const name=z=>z.name.trim().toLowerCase().replace(/\s+/g,' ');
- records.zones=records.zones.filter(z=>{
-  if(z.kind!=='Pen')return true;
-  if(z.id==='sick')return records.groups.some(g=>g.zone===z.id);
-  if(z.shape||!['pen 11','pen 12'].includes(name(z)))return true;
-  const outlined=records.zones.filter(other=>other.kind==='Pen'&&other.shape&&name(other)===name(z));
-  if(outlined.length!==1)return true;
-  for(const group of records.groups){
-   if(group.zone===z.id)group.zone=outlined[0].id;
-  }
-  return false;
- });
+ records.zones=records.zones.filter(zone=>zone.id!=='sick'||zone.kind!=='Pen'||records.groups.some(group=>group.zone===zone.id));
 }
 function farmHome(){return data.shedOutline||data.zones.some(z=>z.separateImage)?'overview':'farm'}
 const shedFootprint=()=>({
@@ -93,7 +82,7 @@ function render(){
   const unplaced=zones.filter(z=>!z.shape);
   view.innerHTML=farmRecoverySummary()+'<div class="stats"><span>'+data.groups.length+' groups</span><span>'+(data.groups.reduce((total,g)=>total+groupHeadcount(g),0)+data.calves.filter(c=>!c.group&&!c.weaned&&!c.deathDate).length)+' active calves</span><span>'+count+' checks due</span></div><h2>Farm map</h2><div class="actions map-tabs">'+mapTabs([[home,'Paddocks & yards'],['shed','Shed pens']],section)+'</div>'+
    (section!=='shed'&&home==='overview'?'<div class="actions map-tabs" role="group" aria-label="Paddocks and yards maps">'+mapTabs(farmAreas,mapPage)+'</div>':'')+
-   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':mapPage==='shed'?'Add a pen, then tap grid intersections to draw its corners.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button(mapPage==='shed'?'Add pen':'Add location','zone')+(mapPage==='shed'?button(data.shedOutline?'Edit shed outline':'Draw shed outline','outline','shed-footprint')+(zones.length||data.shedOutline||data.images?.shed?button('Reset shed layout','reset-shed'):'')+button('Align selected pens','align-selected-shed-pens')+(button('Move pen cluster','move-pen-cluster'))+(clusterMoveIds.length?button('Cancel moving cluster','cancel-move-cluster'):'')+(data.shedClusterMoveBefore?button('Undo last cluster move','undo-cluster-move'):'')+(penMoveId?button('Cancel moving pen','cancel-move-pen'):'')+(data.shedPenMoveBefore?button('Undo last pen move','undo-move-pen'):'')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
+   '<p class="hint">'+(editing?(overview?'Drag a paddock or shed to move it. Drag its corner to resize. Changes save when you release.':mapPage==='shed'?'Add a pen, then tap grid intersections to draw its corners.':'Draw or edit an outline for each location. You can add a reference image to this view.') :'Drag a group onto a pen or paddock, or tap it and choose a destination from any map. In the shed, press and hold a pen to find and add an existing calf.')+'</p><div class="actions">'+button('Add group','group','',true)+button(editing?'Done editing':'Edit layout','layout')+(editing&&!overview?button(mapPage==='shed'?'Add pen':'Add location','zone')+(mapPage==='shed'?button(data.shedOutline?'Edit shed outline':'Draw shed outline','outline','shed-footprint')+(zones.length||data.shedOutline||data.images?.shed?button('Reset shed layout','reset-shed'):'')+button('Fix pen numbering','fix-pen-numbering')+(data.shedNumberingUndo?button('Undo numbering change','undo-pen-numbering'):'')+button('Align selected pens','align-selected-shed-pens')+(button('Move pen cluster','move-pen-cluster'))+(clusterMoveIds.length?button('Cancel moving cluster','cancel-move-cluster'):'')+(data.shedClusterMoveBefore?button('Undo last cluster move','undo-cluster-move'):'')+(penMoveId?button('Cancel moving pen','cancel-move-pen'):'')+(data.shedPenMoveBefore?button('Undo last pen move','undo-move-pen'):'')+(data.shedPenShapesBeforeSquare?button('Undo pen alignment','undo-square-shed-pens'):''):'')+(mapPage==='shed'?'':button(image?'Replace reference image':'Add reference image','image')+(image?button('Remove image','remove-image'):'')):'')+'</div>'+
    (overview?'<p class="hint">North is up · Distances are schematic</p>':'')+
    (section==='shed'||overview||editing||image||zones.some(z=>z.shape)?drawBoard(zones,image,overview?1.25:undefined):'')+
    (editing&&!overview?'<h3>Locations</h3>'+
@@ -260,6 +249,27 @@ function renumberShedPens(records){
  pens.sort((a,b)=>a.strawOrder-b.strawOrder);
  let number=1;
  for(const pen of pens)pen.name=pen.strawStorage?'Straw':'Pen '+number++;
+}
+
+function savePenNumberingUndo(records){
+ records.shedNumberingUndo=records.zones.filter(numberedShedPen).map(({id,name,strawOrder,strawStorage})=>({id,name,strawOrder,strawStorage}));
+}
+function fixPenNumberingForm(){
+ const pens=data.zones.filter(numberedShedPen).sort((a,b)=>(a.strawOrder??Number(a.name.match(/\d+/)?.[0]))-(b.strawOrder??Number(b.name.match(/\d+/)?.[0])));
+ if(!pens.length){say('No numbered pens to fix.');return}
+ const fields=pens.map((pen,i)=>{
+  const preview=pen.shape?'<svg viewBox="0 0 1000 1000" width="52" height="40" aria-hidden="true" style="background:#e6ebdc;vertical-align:middle"><polygon fill="#375946" points="'+pointsAttr(pen.shape)+'"/></svg> ':'';
+  return '<div class="pen-order-row">'+preview+field(pen.name,input('order-'+pen.id,i+1,'required type="number" min="1" max="'+pens.length+'" step="1"'))+'</div>';
+ }).join('');
+ show('Fix pen numbering','<p>Set the order of the pens and straw areas. Use each position once. Straw areas keep their place in the order and are skipped when assigning pen numbers.</p>'+fields,values=>{
+  const order=pens.map(pen=>Number(values['order-'+pen.id]));
+  if(new Set(order).size!==pens.length||order.some(n=>!Number.isInteger(n)||n<1||n>pens.length))return error('Use each position from 1 to '+pens.length+' once.');
+  return commit(records=>{
+   savePenNumberingUndo(records);
+   pens.forEach((pen,i)=>{by(records.zones,pen.id).strawOrder=order[i]});
+   renumberShedPens(records);
+  },'Pen numbering updated.');
+ },'Save numbering');
 }
 
 function shedFrame(outlines,aspect){
@@ -505,7 +515,7 @@ function resetShedLayout(records){
  const range=records.lastCalfRangeAssignment;
  if(range&&(range.assignments.some(row=>shedGroups.has(row.before)||shedGroups.has(row.after))||
   range.counts.some(row=>shedGroups.has(row.id))))delete records.lastCalfRangeAssignment;
- for(const prop of ['shedOutline','shedPosition','shedClusterMoveBefore','shedPenMoveBefore','shedPenShapesBeforeSquare'])delete records[prop];
+ for(const prop of ['shedOutline','shedPosition','shedNumberingUndo','shedClusterMoveBefore','shedPenMoveBefore','shedPenShapesBeforeSquare'])delete records[prop];
  records.shedReset=true;
 }
 function resetShedForm(){
@@ -686,11 +696,30 @@ document.addEventListener('click',e=>{
   },'Align selected pens');
   return;
  }
+ if(a==='fix-pen-numbering'){fixPenNumberingForm();return}
+ if(a==='undo-pen-numbering'){
+  const before=data.shedNumberingUndo;
+  if(!Array.isArray(before)||!before.length)return;
+  if(before.some(row=>row.strawStorage&&data.groups.some(group=>group.zone===row.id))){
+   show('Move calves first','<p>Move groups out of the pen that would return to straw before undoing.</p>');return;
+  }
+  commit(records=>{
+   for(const row of before){
+    const pen=by(records.zones,row.id);
+    if(!pen)continue;
+    pen.name=row.name;
+    if(row.strawOrder==null)delete pen.strawOrder;else pen.strawOrder=row.strawOrder;
+    if(row.strawStorage==null)delete pen.strawStorage;else pen.strawStorage=row.strawStorage;
+   }
+   delete records.shedNumberingUndo;
+  },'Previous pen numbering restored.');return;
+ }
  if(a==='toggle-straw'){
   const z=by(data.zones,k);if(!z||(!z.strawStorage&&!numberedShedPen(z)))return;
   if(!z.strawStorage&&data.groups.some(g=>g.zone===k)){show('Move calves first','<p>Move any groups out of this pen before converting it to straw. This protects existing calf locations.</p>');return}
   const toStraw=!z.strawStorage;
   show(toStraw?'Change pen to straw?':'Restore numbered pen?','<p>'+esc(toStraw?'This area turns yellow, displays STRAW and later pen numbers decrease by one.':'This area becomes a pen again and pen numbers adjust.')+'</p>',()=>commit(d=>{
+   savePenNumberingUndo(d);
    by(d.zones,k).strawStorage=toStraw;renumberShedPens(d);
   },toStraw?'Area changed to straw.':'Straw area restored to a pen.'),toStraw?'Change to straw':'Restore pen');
   return;
@@ -788,7 +817,7 @@ document.addEventListener('click',e=>{
    if((mapArea||z?.separateImage)&&v.kind==='Pen')return error('Keep this location as a paddock or yard.');
    if(z?.shape && mapFor(z)!==mapFor({...z,...v}))return error('This location has an outline on its current map. Keep its current map type.');
    const zoneId=z?.id??id();
-   const saved=commit(d=>{if(z)Object.assign(by(d.zones,k),v);else d.zones.push({...v,id:zoneId,...(mapArea?{mapArea}:{})})},'Map updated.');
+   const saved=commit(d=>{if(z)Object.assign(by(d.zones,k),v);else d.zones.push({...v,id:zoneId,...(mapArea?{mapArea}:{})});if(addingPen||z&&mapFor(z)==='shed')delete d.shedNumberingUndo},'Map updated.');
    if(saved&&addingPen){draft={id:zoneId,points:[],vertex:null};render();$('board').scrollIntoView({block:'nearest'});}
    return saved;
   });return;
@@ -917,7 +946,7 @@ $('restore').onchange=async e=>{
  try{
   const next=JSON.parse(await file.text());if(!validBackup(next))throw Error();
   show('Restore backup','<p>This will replace the current records with '+next.calves.length+' calf records and '+next.groups.length+' groups from the selected file.</p>',()=>{
-   if(!commit(d=>{delete d.images;delete d.shedOutline;delete d.shedPosition;delete d.layout;delete d.shedReset;delete d.shedHeightScale;Object.assign(d,next)},'Backup restored.'))return false;
+   if(!commit(d=>{delete d.images;delete d.shedOutline;delete d.shedPosition;delete d.layout;delete d.shedReset;delete d.shedHeightScale;delete d.shedNumberingUndo;Object.assign(d,next)},'Backup restored.'))return false;
    draft=null;mapPage=farmHome();editing=false;return true;
   });
  }catch{say('That file is not a valid Calf Paddock backup.')}
